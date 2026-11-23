@@ -51,7 +51,7 @@ const visitSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: ['Scheduled', 'Checked In', 'Completed', 'Cancelled'],
-      default: 'Completed',
+      default: 'Scheduled',
     },
     notes: {
       type: String,

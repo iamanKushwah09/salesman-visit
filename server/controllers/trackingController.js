@@ -8,15 +8,28 @@ const Collection = require('../models/Collection');
 function computeStatus(lastSeenAt, isOnline) {
   if (!lastSeenAt || !isOnline) return 'offline';
   const ageSeconds = (Date.now() - new Date(lastSeenAt).getTime()) / 1000;
-  if (ageSeconds <= 120) return 'live';
-  if (ageSeconds <= 600) return 'stale';
+  if (ageSeconds <= 300) return 'live'; // 5 minutes window
+  if (ageSeconds <= 1800) return 'stale'; // 30 minutes window
   return 'offline';
 }
 
 // GET /api/tracking/live-locations
 exports.getLiveLocations = async (req, res) => {
   try {
-    const salesmen = await Salesman.find({ isActive: true });
+    const isStaffAdmin =
+      req.user?.roleSlug === 'super_admin' ||
+      req.user?.role?.slug === 'super_admin' ||
+      req.user?.roleSlug === 'area_sales_manager' ||
+      req.user?.role?.slug === 'area_sales_manager' ||
+      req.user?.role?.permissions?.includes('*');
+
+    const isSalesman = !isStaffAdmin && !!req.user?.salesmanProfile;
+    const salesmanQuery = { isActive: true };
+    if (isSalesman) {
+      salesmanQuery._id = req.user.salesmanProfile._id || req.user.salesmanProfile;
+    }
+
+    const salesmen = await Salesman.find(salesmanQuery);
     const locations = await LocationCurrent.find();
 
     const locationMap = new Map();
@@ -32,9 +45,24 @@ exports.getLiveLocations = async (req, res) => {
     ]);
 
     const visitCountMap = new Map();
+    const latestVisitGpsMap = new Map();
+
     todayVisits.forEach((v) => {
       const sid = v.salesman.toString();
       visitCountMap.set(sid, (visitCountMap.get(sid) || 0) + 1);
+
+      if (v.checkIn?.latitude && v.checkIn?.longitude) {
+        const existing = latestVisitGpsMap.get(sid);
+        if (!existing || new Date(v.checkIn.timestamp || v.updatedAt) > new Date(existing.timestamp)) {
+          latestVisitGpsMap.set(sid, {
+            latitude: v.checkIn.latitude,
+            longitude: v.checkIn.longitude,
+            address: v.checkIn.address || v.partyName || '',
+            accuracy: v.checkIn.accuracy || null,
+            timestamp: v.checkIn.timestamp || v.updatedAt,
+          });
+        }
+      }
     });
 
     const collectionMapSum = new Map();
@@ -46,8 +74,12 @@ exports.getLiveLocations = async (req, res) => {
     const result = salesmen.map((sm) => {
       const sid = sm._id.toString();
       const loc = locationMap.get(sid);
+      const visitGps = latestVisitGpsMap.get(sid);
 
       const status = loc ? computeStatus(loc.lastSeenAt, loc.isOnline) : 'offline';
+      const effectiveLat = loc?.latitude ?? visitGps?.latitude ?? null;
+      const effectiveLng = loc?.longitude ?? visitGps?.longitude ?? null;
+      const effectiveAddress = loc?.address || visitGps?.address || '';
 
       return {
         salesmanId: sm._id,
@@ -56,16 +88,16 @@ exports.getLiveLocations = async (req, res) => {
         phone: sm.phone,
         territory: sm.territory,
         vehicleType: sm.vehicleType,
-        latitude: loc?.latitude ?? null,
-        longitude: loc?.longitude ?? null,
+        latitude: effectiveLat != null ? Number(effectiveLat) : null,
+        longitude: effectiveLng != null ? Number(effectiveLng) : null,
         speed: loc?.speed ?? 0,
         heading: loc?.heading ?? 0,
-        accuracy: loc?.accuracy ?? 0,
+        accuracy: loc?.accuracy ?? visitGps?.accuracy ?? null,
         battery: loc?.battery ?? null,
-        address: loc?.address ?? '',
+        address: effectiveAddress,
         trackingStatus: status,
         isOnline: status !== 'offline',
-        lastSeenAt: loc?.lastSeenAt ?? null,
+        lastSeenAt: loc?.lastSeenAt ?? visitGps?.timestamp ?? null,
         visitsToday: visitCountMap.get(sid) || 0,
         collectionToday: collectionMapSum.get(sid) || 0,
       };

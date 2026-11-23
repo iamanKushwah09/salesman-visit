@@ -12,6 +12,7 @@ router.get('/:id', visitController.getVisitById);
 router.post('/', checkPermission('visits'), visitController.createVisit);
 router.put('/:id/check-in', checkPermission('visits'), visitController.checkIn);
 router.put('/:id/check-out', checkPermission('visits'), visitController.checkOut);
+router.put('/:id/cancel', checkPermission('visits'), visitController.cancelVisit);
+router.delete('/:id', checkPermission('visits'), visitController.deleteVisit);
 
 module.exports = router;
-

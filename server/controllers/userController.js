@@ -56,6 +56,37 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid role selected' });
     }
 
+    let linkedSalesmanId = salesmanId || null;
+
+    const isSalesmanRole =
+      role.slug === 'field_salesman' ||
+      role.slug === 'salesman' ||
+      /salesman/i.test(role.name) ||
+      /salesman/i.test(role.slug);
+
+    // If role is a salesman role and no salesman was manually selected, auto-create their salesman profile
+    if (isSalesmanRole && !linkedSalesmanId) {
+      const last = await Salesman.findOne().sort({ createdAt: -1 });
+      let code = 'SM-101';
+      if (last && last.salesmanCode) {
+        const num = parseInt(last.salesmanCode.replace(/\D/g, ''), 10);
+        code = isNaN(num) ? 'SM-101' : `SM-${num + 1}`;
+      }
+
+      const autoSalesman = await Salesman.create({
+        salesmanCode: code,
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
+        phone: phone.trim() || 'N/A',
+        territory: 'General Market',
+        vehicleType: 'Bike / Scooter',
+        monthlyTarget: 100000,
+        isActive: true,
+      });
+
+      linkedSalesmanId = autoSalesman._id;
+    }
+
     const user = new User({
       name: name.trim(),
       email: email.toLowerCase().trim(),
@@ -64,15 +95,15 @@ exports.createUser = async (req, res) => {
       role: role._id,
       roleName: role.name,
       roleSlug: role.slug,
-      salesmanProfile: salesmanId || null,
+      salesmanProfile: linkedSalesmanId,
       isActive: true,
     });
 
     await user.save();
 
-    // If linked to a salesman, update salesman record with user link
-    if (salesmanId) {
-      await Salesman.findByIdAndUpdate(salesmanId, { user: user._id });
+    // Link user back to salesman
+    if (linkedSalesmanId) {
+      await Salesman.findByIdAndUpdate(linkedSalesmanId, { user: user._id });
     }
 
     const populated = await User.findById(user._id)

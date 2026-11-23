@@ -14,7 +14,20 @@ exports.getAllRoutes = async (req, res) => {
     const { salesman = '', status = '', date = '', page = 1, limit = 30 } = req.query;
 
     const query = {};
-    if (salesman) query.salesman = salesman;
+    const isStaffAdmin =
+      req.user?.roleSlug === 'super_admin' ||
+      req.user?.role?.slug === 'super_admin' ||
+      req.user?.roleSlug === 'area_sales_manager' ||
+      req.user?.role?.slug === 'area_sales_manager' ||
+      req.user?.role?.permissions?.includes('*');
+
+    const isSalesman = !isStaffAdmin && !!req.user?.salesmanProfile;
+    if (isSalesman) {
+      // Salesman sees only his assigned routes
+      query.salesman = req.user.salesmanProfile._id || req.user.salesmanProfile;
+    } else if (salesman) {
+      query.salesman = salesman;
+    }
     if (status) query.status = status;
     if (date) {
       const start = new Date(date);

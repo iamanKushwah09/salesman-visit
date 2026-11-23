@@ -25,7 +25,22 @@ exports.getAllParties = async (req, res) => {
       ];
     }
     if (city) query.city = { $regex: city, $options: 'i' };
-    if (salesman) query.assignedSalesman = salesman;
+
+    const isStaffAdmin =
+      req.user?.roleSlug === 'super_admin' ||
+      req.user?.role?.slug === 'super_admin' ||
+      req.user?.roleSlug === 'area_sales_manager' ||
+      req.user?.role?.slug === 'area_sales_manager' ||
+      req.user?.role?.permissions?.includes('*');
+
+    const isSalesman = !isStaffAdmin && !!req.user?.salesmanProfile;
+    if (isSalesman) {
+      // Salesman sees only his assigned customers
+      query.assignedSalesman = req.user.salesmanProfile._id || req.user.salesmanProfile;
+    } else if (salesman) {
+      query.assignedSalesman = salesman;
+    }
+
     if (status) query.isActive = status === 'active';
 
     const skip = (Number(page) - 1) * Number(limit);

@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const LocationCurrent = require('../models/LocationCurrent');
 const LocationHistory = require('../models/LocationHistory');
 const Salesman = require('../models/Salesman');
+const { reverseGeocode } = require('./geocodingService');
 
 let ioInstance = null;
 
@@ -63,37 +64,75 @@ function initSocket(server) {
       activeSalesmanSockets.get(sid).add(socket.id);
 
       const now = new Date();
+      const sm = await Salesman.findById(sid).select('name salesmanCode territory vehicleType');
+      const salesmanName = sm ? sm.name : 'Salesman';
+
+      // Ensure LocationCurrent is upserted so new salesmen are tracked
       await LocationCurrent.findOneAndUpdate(
         { salesman: sid },
-        { isOnline: true, trackingStatus: 'live', lastSeenAt: now }
+        {
+          salesman: sid,
+          salesmanName,
+          isOnline: true,
+          trackingStatus: 'live',
+          lastSeenAt: now,
+        },
+        { upsert: true, new: true }
       );
 
       io.to('admin:tracking').emit('admin:salesman:status', {
         salesmanId: sid,
+        salesmanName,
+        salesmanCode: sm?.salesmanCode,
+        territory: sm?.territory,
         isOnline: true,
         trackingStatus: 'live',
         lastSeenAt: now,
       });
-      console.log(`[Socket] Salesman ${sid} connected & marked LIVE`);
+
+      console.log(`[Socket] Salesman ${sid} (${salesmanName}) connected & marked LIVE`);
     });
 
-    // Periodic Heartbeat
+    // Periodic Heartbeat from active salesman device
     socket.on('salesman:heartbeat', async (data = {}) => {
       const sid = socket.salesmanId || data.salesmanId;
       if (!sid) return;
 
       const now = new Date();
       const updateFields = { isOnline: true, trackingStatus: 'live', lastSeenAt: now };
-      if (data.battery != null) updateFields.battery = data.battery;
+      if (data.battery != null) updateFields.battery = Number(data.battery);
+      if (data.latitude != null && data.longitude != null) {
+        updateFields.latitude = Number(data.latitude);
+        updateFields.longitude = Number(data.longitude);
+      }
+      if (data.speed != null) updateFields.speed = Number(data.speed);
+      if (data.heading != null) updateFields.heading = Number(data.heading);
+      if (data.accuracy != null) updateFields.accuracy = Number(data.accuracy);
+      if (data.address) updateFields.address = data.address;
 
-      await LocationCurrent.findOneAndUpdate({ salesman: sid }, updateFields);
+      const sm = await Salesman.findById(sid).select('name salesmanCode territory');
+      const salesmanName = sm ? sm.name : 'Salesman';
+      updateFields.salesman = sid;
+      updateFields.salesmanName = salesmanName;
+
+      const updated = await LocationCurrent.findOneAndUpdate({ salesman: sid }, updateFields, {
+        upsert: true,
+        new: true,
+      });
 
       io.to('admin:tracking').emit('admin:salesman:status', {
         salesmanId: sid,
+        salesmanName,
+        salesmanCode: sm?.salesmanCode,
+        territory: sm?.territory,
         isOnline: true,
         trackingStatus: 'live',
         lastSeenAt: now,
-        battery: data.battery,
+        battery: updated?.battery,
+        latitude: updated?.latitude,
+        longitude: updated?.longitude,
+        speed: updated?.speed,
+        address: updated?.address,
       });
     });
 
@@ -102,18 +141,23 @@ function initSocket(server) {
       try {
         const { salesmanId, latitude, longitude, speed = 0, heading = 0, accuracy = 0, battery = null, address = '' } = data;
 
-        if (!salesmanId || latitude == null || longitude == null) return;
+        const sid = (salesmanId || socket.salesmanId)?.toString();
+        if (!sid || latitude == null || longitude == null) return;
 
-        const sid = salesmanId.toString();
         const lat = parseFloat(latitude);
         const lng = parseFloat(longitude);
         if (isNaN(lat) || isNaN(lng)) return;
 
         const now = new Date();
-        const sm = await Salesman.findById(sid).select('name');
+        const sm = await Salesman.findById(sid).select('name salesmanCode territory vehicleType');
         const salesmanName = sm ? sm.name : 'Salesman';
 
-        // 1. Update current location
+        let resolvedAddress = address;
+        if (!resolvedAddress) {
+          resolvedAddress = await reverseGeocode(lat, lng);
+        }
+
+        // 1. Update current location with upsert: true
         await LocationCurrent.findOneAndUpdate(
           { salesman: sid },
           {
@@ -125,7 +169,7 @@ function initSocket(server) {
             heading: Number(heading) || 0,
             accuracy: Number(accuracy) || 0,
             battery: battery != null ? Number(battery) : null,
-            address,
+            address: resolvedAddress,
             trackingStatus: 'live',
             lastSeenAt: now,
             isOnline: true,
@@ -137,33 +181,52 @@ function initSocket(server) {
         io.to('admin:tracking').emit('admin:location:update', {
           salesmanId: sid,
           salesmanName,
+          salesmanCode: sm?.salesmanCode,
+          territory: sm?.territory,
           latitude: lat,
           longitude: lng,
           speed: Number(speed) || 0,
           heading: Number(heading) || 0,
           accuracy: Number(accuracy) || 0,
           battery,
-          address,
+          address: resolvedAddress,
           trackingStatus: 'live',
           lastSeenAt: now,
         });
 
-        // 3. Throttle write to LocationHistory (>=10m or >=15s)
-        const last = locationThrottleCache.get(sid);
-        let shouldWriteHistory = true;
+        io.to('admin:tracking').emit('admin:salesman:status', {
+          salesmanId: sid,
+          salesmanName,
+          salesmanCode: sm?.salesmanCode,
+          territory: sm?.territory,
+          isOnline: true,
+          trackingStatus: 'live',
+          lastSeenAt: now,
+          battery,
+          latitude: lat,
+          longitude: lng,
+          speed: Number(speed) || 0,
+        });
 
-        if (last) {
-          const timeDiff = (now.getTime() - last.time) / 1000;
-          const dist = getDistanceInMeters(last.lat, last.lng, lat, lng);
-          if (timeDiff < MIN_TIME_SECONDS && dist < MIN_DISTANCE_METERS) {
-            shouldWriteHistory = false;
+        // 3. Throttled history save
+        const cached = locationThrottleCache.get(sid);
+        let shouldSaveHistory = false;
+
+        if (!cached) {
+          shouldSaveHistory = true;
+        } else {
+          const timeDiffSeconds = (now - cached.timestamp) / 1000;
+          const distMeters = getDistanceInMeters(cached.latitude, cached.longitude, lat, lng);
+          if (timeDiffSeconds >= MIN_TIME_SECONDS && distMeters >= MIN_DISTANCE_METERS) {
+            shouldSaveHistory = true;
           }
         }
 
-        if (shouldWriteHistory) {
-          locationThrottleCache.set(sid, { time: now.getTime(), lat, lng });
+        if (shouldSaveHistory) {
+          locationThrottleCache.set(sid, { latitude: lat, longitude: lng, timestamp: now });
           await LocationHistory.create({
             salesman: sid,
+            salesmanName,
             latitude: lat,
             longitude: lng,
             speed: Number(speed) || 0,
@@ -190,15 +253,19 @@ function initSocket(server) {
 
         setTimeout(async () => {
           if (!isSalesmanConnected(sid)) {
-            await LocationCurrent.findOneAndUpdate({ salesman: sid }, { isOnline: false, trackingStatus: 'offline' });
+            await LocationCurrent.findOneAndUpdate(
+              { salesman: sid },
+              { isOnline: false, trackingStatus: 'offline' }
+            );
             io.to('admin:tracking').emit('admin:salesman:status', {
               salesmanId: sid,
               isOnline: false,
               trackingStatus: 'offline',
               lastSeenAt: new Date(),
             });
+            console.log(`[Socket] Salesman ${sid} disconnected & marked OFFLINE`);
           }
-        }, 30000);
+        }, 20000);
       }
     });
   });
@@ -211,4 +278,3 @@ function getIO() {
 }
 
 module.exports = { initSocket, getIO };
-

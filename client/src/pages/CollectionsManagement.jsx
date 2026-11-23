@@ -87,42 +87,42 @@ const CollectionsManagement = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-900">
+    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50">
       <Navbar
-        title="Collections"
-        subtitle="Track payment receipts and customer ledger collections"
+        title="Collections & Payment Receipts"
+        subtitle="Track payment receipts, cash-in-hand, and customer ledger collections"
       />
 
-      <main className="flex-1 p-6 overflow-y-auto space-y-6">
+      <main className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6">
         {/* KPI Breakdown Summary Bar */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-purple-200 dark:border-purple-800/60 shadow-sm">
-            <span className="text-[11px] font-bold text-purple-600 uppercase tracking-wider block">Total Collected</span>
-            <p className="text-2xl font-black text-purple-700 dark:text-purple-300 mt-1">
+          <div className="bg-white p-4 rounded-2xl border border-purple-200/90 shadow-xs">
+            <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider block">Total Collected</span>
+            <p className="text-2xl font-black text-purple-700 mt-1">
               ₹ {Number(report?.totalAmount || 0).toLocaleString()}
             </p>
             <span className="text-[10px] text-slate-400 block mt-0.5">{report?.totalReceipts || 0} Receipts Issued</span>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-            <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">Cash In Hand</span>
-            <p className="text-xl font-black text-emerald-600 mt-1">
+          <div className="bg-white p-4 rounded-2xl border border-emerald-200/90 shadow-xs">
+            <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block">Cash In Hand</span>
+            <p className="text-xl font-black text-emerald-700 mt-1">
               ₹ {Number(report?.modeBreakdown?.['Cash'] || 0).toLocaleString()}
             </p>
             <span className="text-[10px] text-slate-400 block mt-0.5">Physical currency</span>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-            <span className="text-[11px] font-bold text-sky-600 uppercase tracking-wider block">UPI / QR Digital</span>
-            <p className="text-xl font-black text-sky-600 mt-1">
+          <div className="bg-white p-4 rounded-2xl border border-sky-200/90 shadow-xs">
+            <span className="text-[11px] font-bold text-sky-700 uppercase tracking-wider block">UPI / QR Digital</span>
+            <p className="text-xl font-black text-sky-700 mt-1">
               ₹ {Number(report?.modeBreakdown?.['UPI / QR'] || 0).toLocaleString()}
             </p>
             <span className="text-[10px] text-slate-400 block mt-0.5">Instant online transfers</span>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-            <span className="text-[11px] font-bold text-amber-600 uppercase tracking-wider block">Cheque / Clearing</span>
-            <p className="text-xl font-black text-amber-600 mt-1">
+          <div className="bg-white p-4 rounded-2xl border border-amber-200/90 shadow-xs">
+            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider block">Cheque / Clearing</span>
+            <p className="text-xl font-black text-amber-700 mt-1">
               ₹ {Number(report?.modeBreakdown?.['Cheque'] || 0).toLocaleString()}
             </p>
             <span className="text-[10px] text-slate-400 block mt-0.5">Banking clearing</span>
@@ -130,9 +130,9 @@ const CollectionsManagement = () => {
         </div>
 
         {/* Action Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs">
           <div>
-            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
               <Receipt className="w-5 h-5 text-purple-600" />
               <span>Payment Receipts Log</span>
             </h2>
@@ -143,7 +143,7 @@ const CollectionsManagement = () => {
 
           <button
             onClick={openCreateModal}
-            className="flex items-center gap-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md transition self-end sm:self-auto"
+            className="flex items-center gap-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition active:scale-95 cursor-pointer self-end sm:self-auto"
           >
             <Plus className="w-4 h-4" />
             <span>Record New Receipt</span>
@@ -151,11 +151,11 @@ const CollectionsManagement = () => {
         </div>
 
         {/* Collections Table */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/90">
                   <th className="p-4">Receipt No & Date</th>
                   <th className="p-4">Customer / Party</th>
                   <th className="p-4">Collecting Salesman</th>
@@ -165,7 +165,7 @@ const CollectionsManagement = () => {
                   <th className="p-4">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+              <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
                     <td colSpan="7" className="p-8 text-center text-slate-400">Loading collection receipts...</td>
@@ -176,22 +176,22 @@ const CollectionsManagement = () => {
                   </tr>
                 ) : (
                   collections.map((c) => (
-                    <tr key={c._id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition">
+                    <tr key={c._id} className="hover:bg-slate-50/80 transition">
                       <td className="p-4">
                         <span className="font-mono font-bold text-purple-700 block">{c.receiptNo}</span>
                         <span className="text-[11px] text-slate-400">{new Date(c.date).toLocaleDateString()}</span>
                       </td>
 
-                      <td className="p-4 font-bold text-slate-900 dark:text-slate-100">
+                      <td className="p-4 font-bold text-slate-900">
                         {c.party?.name || c.partyName}
                       </td>
 
-                      <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">
+                      <td className="p-4 font-semibold text-slate-700">
                         {c.salesman?.name || c.salesmanName}
                       </td>
 
                       <td className="p-4">
-                        <span className="px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                        <span className="px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
                           {c.paymentMode}
                         </span>
                       </td>
@@ -200,13 +200,13 @@ const CollectionsManagement = () => {
                         {c.referenceNo || '-'}
                       </td>
 
-                      <td className="p-4 font-extrabold text-sm text-purple-700 dark:text-purple-300">
+                      <td className="p-4 font-black text-purple-700 text-sm">
                         ₹ {Number(c.amount).toLocaleString()}
                       </td>
 
                       <td className="p-4">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                          {c.status}
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {c.status || 'Verified'}
                         </span>
                       </td>
                     </tr>
@@ -220,11 +220,11 @@ const CollectionsManagement = () => {
 
       {/* Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-              <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">Record Payment Collection Receipt</h3>
-              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-sm text-slate-900">Record Payment Collection Receipt</h3>
+              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -236,56 +236,60 @@ const CollectionsManagement = () => {
                 </div>
               )}
 
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Collecting Salesman *</label>
-                <select
-                  value={salesmanId}
-                  onChange={(e) => setSalesmanId(e.target.value)}
-                  required
-                  className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white"
-                >
-                  {salesmen.map((sm) => (
-                    <option key={sm._id} value={sm._id}>
-                      {sm.name} ({sm.territory})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Salesman *</label>
+                  <select
+                    value={salesmanId}
+                    onChange={(e) => setSalesmanId(e.target.value)}
+                    required
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                  >
+                    {salesmen.map((s) => (
+                      <option key={s._id} value={s._id}>
+                        {s.name} ({s.salesmanCode})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Customer / Retailer *</label>
-                <select
-                  value={partyId}
-                  onChange={(e) => setPartyId(e.target.value)}
-                  required
-                  className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white"
-                >
-                  {parties.map((p) => (
-                    <option key={p._id} value={p._id}>
-                      {p.name} (Outstanding: ₹{p.outstandingBalance || 0})
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Customer / Party *</label>
+                  <select
+                    value={partyId}
+                    onChange={(e) => setPartyId(e.target.value)}
+                    required
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                  >
+                    {parties.map((p) => (
+                      <option key={p._id} value={p._id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Amount (₹) *</label>
+                  <label className="block text-slate-700 font-bold mb-1">Amount Collected (₹) *</label>
                   <input
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    placeholder="e.g. 15000"
+                    placeholder="e.g. 5000"
+                    min="1"
                     required
-                    className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white font-bold"
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                   />
                 </div>
+
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Payment Mode</label>
+                  <label className="block text-slate-700 font-bold mb-1">Payment Mode *</label>
                   <select
                     value={paymentMode}
                     onChange={(e) => setPaymentMode(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white"
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                   >
                     <option value="Cash">Cash</option>
                     <option value="UPI / QR">UPI / QR</option>
@@ -296,39 +300,39 @@ const CollectionsManagement = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reference / UTR / Cheque No</label>
+                <label className="block text-slate-700 font-bold mb-1">Reference / UTR / Cheque No</label>
                 <input
                   type="text"
                   value={referenceNo}
                   onChange={(e) => setReferenceNo(e.target.value)}
-                  placeholder="e.g. UPI-983421 or CHQ-002145"
-                  className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white"
+                  placeholder="e.g. UTR-98234827 or CHQ-001234"
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Notes / Remarks</label>
+                <label className="block text-slate-700 font-bold mb-1">Notes</label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Advance for Diwali stock booking"
+                  placeholder="Payment remarks..."
                   rows="2"
-                  className="w-full border border-slate-300 rounded-xl p-2.5"
+                  className="w-full text-xs border border-slate-200 rounded-xl p-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                 />
               </div>
 
-              <div className="pt-3 flex justify-end gap-3 border-t">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 font-bold text-slate-600"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-5 py-2 font-bold bg-purple-700 text-white rounded-xl shadow-md"
+                  className="px-5 py-2.5 text-xs font-bold bg-purple-700 hover:bg-purple-800 text-white rounded-xl shadow-xs transition active:scale-95 disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? 'Recording...' : 'Generate Receipt'}
                 </button>
@@ -342,4 +346,3 @@ const CollectionsManagement = () => {
 };
 
 export default CollectionsManagement;
-

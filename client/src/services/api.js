@@ -1,6 +1,36 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5070/api';
+// Resolve backend API URL dynamically based on environment
+const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+  const envServerUrl = import.meta.env.VITE_SERVER_URL;
+
+  // 1. Explicit API URL provided
+  if (envApiUrl && envApiUrl.trim()) {
+    return envApiUrl.trim().replace(/\/+$/, '');
+  }
+
+  // 2. Server Root URL provided
+  if (envServerUrl && envServerUrl.trim()) {
+    const cleanUrl = envServerUrl.trim().replace(/\/+$/, '');
+    return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+  }
+
+  // 3. Cloud / Production fallback: if running on a live domain (Render, Railway, custom domain), use origin
+  if (
+    typeof window !== 'undefined' &&
+    window.location.origin &&
+    !window.location.origin.includes('localhost') &&
+    !window.location.origin.includes('127.0.0.1')
+  ) {
+    return `${window.location.origin}/api`;
+  }
+
+  // 4. Default local development server
+  return 'http://localhost:5070/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -32,7 +62,7 @@ api.interceptors.response.use(
       localStorage.removeItem('salesman_visit_user');
       localStorage.removeItem('fieldpulse_token');
       localStorage.removeItem('fieldpulse_user');
-      if (window.location.pathname !== '/login') {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
     }
@@ -41,4 +71,3 @@ api.interceptors.response.use(
 );
 
 export default api;
-

@@ -2,8 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #f8fafc;
+    color: #0f172a;
+    letter-spacing: -0.011em;
+  }
 }
 
 @keyframes uber-radar-ping {
@@ -24,8 +31,7 @@ body {
 
 .leaflet-popup-content-wrapper {
   border-radius: 14px;
-  box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.12);
   border: 1px solid rgba(226, 232, 240, 0.9);
   padding: 4px;
 }
-

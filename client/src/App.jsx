@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
+import { SidebarProvider } from './context/SidebarContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
 
@@ -30,7 +31,8 @@ function App() {
   return (
     <AuthProvider>
       <SocketProvider>
-        <BrowserRouter>
+        <SidebarProvider>
+          <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
 
@@ -136,8 +138,9 @@ function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
-      </SocketProvider>
-    </AuthProvider>
+      </SidebarProvider>
+    </SocketProvider>
+  </AuthProvider>
   );
 }
 

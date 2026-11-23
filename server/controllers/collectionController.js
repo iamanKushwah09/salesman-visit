@@ -14,7 +14,20 @@ exports.getAllCollections = async (req, res) => {
     const { salesman = '', party = '', paymentMode = '', status = '', startDate = '', endDate = '', page = 1, limit = 50 } = req.query;
 
     const query = {};
-    if (salesman) query.salesman = salesman;
+    const isStaffAdmin =
+      req.user?.roleSlug === 'super_admin' ||
+      req.user?.role?.slug === 'super_admin' ||
+      req.user?.roleSlug === 'area_sales_manager' ||
+      req.user?.role?.slug === 'area_sales_manager' ||
+      req.user?.role?.permissions?.includes('*');
+
+    const isSalesman = !isStaffAdmin && !!req.user?.salesmanProfile;
+    if (isSalesman) {
+      // Salesman sees only his collections
+      query.salesman = req.user.salesmanProfile._id || req.user.salesmanProfile;
+    } else if (salesman) {
+      query.salesman = salesman;
+    }
     if (party) query.party = party;
     if (paymentMode) query.paymentMode = paymentMode;
     if (status) query.status = status;
@@ -110,7 +123,20 @@ exports.getCollectionReport = async (req, res) => {
     const { salesman = '', startDate = '', endDate = '' } = req.query;
 
     const query = {};
-    if (salesman) query.salesman = salesman;
+    const isStaffAdmin =
+      req.user?.roleSlug === 'super_admin' ||
+      req.user?.role?.slug === 'super_admin' ||
+      req.user?.roleSlug === 'area_sales_manager' ||
+      req.user?.role?.slug === 'area_sales_manager' ||
+      req.user?.role?.permissions?.includes('*');
+
+    const isSalesman = !isStaffAdmin && !!req.user?.salesmanProfile;
+    if (isSalesman) {
+      // Salesman sees only his collections
+      query.salesman = req.user.salesmanProfile._id || req.user.salesmanProfile;
+    } else if (salesman) {
+      query.salesman = salesman;
+    }
 
     const s = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     s.setHours(0, 0, 0, 0);

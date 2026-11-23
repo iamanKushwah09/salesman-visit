@@ -61,13 +61,13 @@ const UserManagement = () => {
 
   const openEditModal = (u) => {
     setEditingUser(u);
-    setName(u.name);
-    setEmail(u.email);
+    setName(u.name || '');
+    setEmail(u.email || '');
     setPassword('');
     setPhone(u.phone || '');
-    setRoleId(u.role?._id || '');
-    setSalesmanId(u.salesmanProfile?._id || '');
-    setIsActive(u.isActive);
+    setRoleId(u.role?._id || u.role || '');
+    setSalesmanId(u.salesmanProfile?._id || u.salesmanProfile || '');
+    setIsActive(u.isActive !== false);
     setFormError('');
     setModalOpen(true);
   };
@@ -78,39 +78,41 @@ const UserManagement = () => {
     setSubmitting(true);
 
     try {
+      const payload = {
+        name,
+        email,
+        phone,
+        roleId,
+        salesmanId: salesmanId || null,
+        isActive,
+      };
+      if (password) payload.password = password;
+
       if (editingUser) {
-        await api.put(`/users/${editingUser._id}`, {
-          name,
-          email,
-          password: password || undefined,
-          phone,
-          roleId,
-          salesmanId: salesmanId || null,
-          isActive,
-        });
+        await api.put(`/users/${editingUser._id}`, payload);
       } else {
-        if (!password) throw new Error('Password is required for new users');
-        await api.post('/users', {
-          name,
-          email,
-          password,
-          phone,
-          roleId,
-          salesmanId: salesmanId || null,
-        });
+        if (!password) {
+          setFormError('Password is required when creating a new user');
+          setSubmitting(false);
+          return;
+        }
+        await api.post('/users', payload);
       }
 
       setModalOpen(false);
       fetchData();
     } catch (err) {
-      setFormError(err.message || 'Failed to save user');
+      setFormError(err.message || 'Operation failed');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (u) => {
-    if (!window.confirm(`Delete user '${u.name}'?`)) return;
+    if (!window.confirm(`Are you sure you want to delete user account "${u.name}" (${u.email})?`)) {
+      return;
+    }
+
     try {
       await api.delete(`/users/${u._id}`);
       fetchData();
@@ -120,15 +122,15 @@ const UserManagement = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-900">
+    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50">
       <Navbar
-        title="Users"
-        subtitle="Manage user accounts, passwords, and assigned roles"
+        title="Users & Access Accounts"
+        subtitle="Manage login credentials, passwords, and assigned system roles"
       />
 
-      <main className="flex-1 p-6 overflow-y-auto space-y-6">
+      <main className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6">
         {/* Header Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs">
           <div className="relative flex-1 max-w-sm">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
             <input
@@ -136,13 +138,13 @@ const UserManagement = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search user by name, email, or phone..."
-              className="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-3.5 py-2.5 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-brand-600"
+              className="w-full text-xs border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 bg-slate-50 text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
             />
           </div>
 
           <button
             onClick={openCreateModal}
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md shadow-brand-600/30 transition self-end sm:self-auto"
+            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition active:scale-95 cursor-pointer self-end sm:self-auto"
           >
             <Plus className="w-4 h-4" />
             <span>Create New User</span>
@@ -150,19 +152,19 @@ const UserManagement = () => {
         </div>
 
         {/* Users Table */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/90">
                   <th className="p-4">User Details</th>
-                  <th className="p-4 font-bold uppercase tracking-wider text-[11px] text-purple-700 dark:text-purple-300">Role Name</th>
+                  <th className="p-4 font-bold uppercase tracking-wider text-[11px] text-purple-700">Role Name</th>
                   <th className="p-4">Linked Salesman Profile</th>
                   <th className="p-4">Status</th>
                   <th className="p-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+              <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
                     <td colSpan="5" className="p-8 text-center text-slate-400">
@@ -177,14 +179,14 @@ const UserManagement = () => {
                   </tr>
                 ) : (
                   users.map((u) => (
-                    <tr key={u._id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition">
+                    <tr key={u._id} className="hover:bg-slate-50/80 transition">
                       <td className="p-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-brand-100 text-brand-700 font-extrabold flex items-center justify-center text-xs shrink-0">
+                          <div className="w-9 h-9 rounded-full bg-brand-50 text-brand-700 font-extrabold flex items-center justify-center text-xs shrink-0 border border-brand-200">
                             {u.name ? u.name.charAt(0).toUpperCase() : 'U'}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-900 dark:text-slate-100">{u.name}</p>
+                            <p className="font-bold text-slate-900">{u.name}</p>
                             <p className="text-slate-500 text-[11px]">{u.email}</p>
                             {u.phone && <p className="text-slate-400 text-[10px]">{u.phone}</p>}
                           </div>
@@ -192,15 +194,15 @@ const UserManagement = () => {
                       </td>
 
                       <td className="p-4">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800 shadow-xs">
-                          <Shield className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 text-purple-700 font-bold text-xs border border-purple-200 shadow-xs">
+                          <Shield className="w-3.5 h-3.5 text-purple-600" />
                           <span>{u.roleName || u.role?.name || 'No Role'}</span>
                         </span>
                       </td>
 
                       <td className="p-4">
                         {u.salesmanProfile ? (
-                          <div className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300 font-semibold text-xs">
+                          <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-xs">
                             <UserCheck className="w-3.5 h-3.5" />
                             <span>
                               {u.salesmanProfile.salesmanCode} ({u.salesmanProfile.territory || 'Market'})
@@ -215,8 +217,8 @@ const UserManagement = () => {
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                             u.isActive
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                              : 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
                           }`}
                         >
                           {u.isActive ? 'ACTIVE' : 'DEACTIVATED'}
@@ -228,14 +230,14 @@ const UserManagement = () => {
                           <button
                             onClick={() => openEditModal(u)}
                             title="Edit User"
-                            className="p-1.5 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/40 rounded-lg transition"
+                            className="p-1.5 text-brand-600 hover:bg-brand-50 rounded-lg transition cursor-pointer"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(u)}
                             title="Delete User"
-                            className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/40 rounded-lg transition"
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -252,13 +254,13 @@ const UserManagement = () => {
 
       {/* Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full flex flex-col shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900">
                 {editingUser ? `Edit User: ${editingUser.name}` : 'Create New User Account'}
               </h3>
-              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -271,31 +273,31 @@ const UserManagement = () => {
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Full Name *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name *</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Ramesh Patel"
                   required
-                  className="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Email *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Email *</label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="name@company.com"
                     required
-                    className="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     {editingUser ? 'Password (Blank to keep)' : 'Password *'}
                   </label>
                   <input
@@ -304,88 +306,85 @@ const UserManagement = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required={!editingUser}
-                    className="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Phone Number</label>
-                <input
-                  type="text"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+91 98765 00000"
-                  className="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+91 9876543210"
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Role *</label>
+                  <select
+                    value={roleId}
+                    onChange={(e) => setRoleId(e.target.value)}
+                    required
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                  >
+                    {roles.map((r) => (
+                      <option key={r._id} value={r._id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              {/* Role Dropdown */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Role Name (Select from Roles) *
-                </label>
-                <select
-                  value={roleId}
-                  onChange={(e) => setRoleId(e.target.value)}
-                  required
-                  className="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold"
-                >
-                  <option value="">-- Select Role Name --</option>
-                  {roles.map((r) => (
-                    <option key={r._id} value={r._id}>
-                      {r.name} {r.slug === 'super_admin' ? '(Super Admin - All Access)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Link to Salesman Profile */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
                   Link to Salesman Profile (Optional)
                 </label>
                 <select
                   value={salesmanId}
                   onChange={(e) => setSalesmanId(e.target.value)}
-                  className="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                 >
-                  <option value="">-- None (Administrative staff only) --</option>
-                  {salesmen.map((sm) => (
-                    <option key={sm._id} value={sm._id}>
-                      {sm.name} ({sm.salesmanCode} - {sm.territory})
+                  <option value="">None (Standard User / Manager)</option>
+                  {salesmen.map((s) => (
+                    <option key={s._id} value={s._id}>
+                      {s.name} ({s.salesmanCode}) - {s.territory || 'No territory'}
                     </option>
                   ))}
                 </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Linking a user to a salesman profile isolates their data access to their assigned territory, stops, and collections.
+                </p>
               </div>
 
-              {editingUser && (
-                <div className="flex items-center gap-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="isActive"
-                    checked={isActive}
-                    onChange={(e) => setIsActive(e.target.checked)}
-                    className="w-4 h-4 rounded text-brand-600"
-                  />
-                  <label htmlFor="isActive" className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Account is Active
-                  </label>
-                </div>
-              )}
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="isActive"
+                  checked={isActive}
+                  onChange={(e) => setIsActive(e.target.checked)}
+                  className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500 border-slate-300"
+                />
+                <label htmlFor="isActive" className="text-xs font-bold text-slate-700 cursor-pointer">
+                  Account Active (Allowed to sign in)
+                </label>
+              </div>
 
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-5 py-2 text-xs font-bold bg-brand-600 hover:bg-brand-700 text-white rounded-xl shadow-md transition disabled:opacity-50"
+                  className="px-5 py-2.5 text-xs font-bold bg-brand-600 hover:bg-brand-700 text-white rounded-xl shadow-xs transition active:scale-95 disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? 'Saving...' : editingUser ? 'Update User' : 'Create User'}
                 </button>
@@ -399,4 +398,3 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
-
