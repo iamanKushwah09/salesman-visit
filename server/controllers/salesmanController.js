@@ -2,6 +2,7 @@ const Salesman = require('../models/Salesman');
 const User = require('../models/User');
 const Role = require('../models/Role');
 const LocationCurrent = require('../models/LocationCurrent');
+const { isSalesmanConnected } = require('../services/socketService');
 
 // Generate Next Salesman Code (e.g. SM-101, SM-102...)
 async function getNextSalesmanCode() {
@@ -51,11 +52,42 @@ exports.getAllSalesmen = async (req, res) => {
     if (territory) query.territory = territory;
     if (status) query.isActive = status === 'active';
 
-    const salesmen = await Salesman.find(query)
-      .populate('user', 'email isActive roleSlug lastLogin')
-      .sort({ createdAt: -1 });
+    const [salesmen, locations] = await Promise.all([
+      Salesman.find(query)
+        .populate('user', 'email isActive roleSlug lastLogin')
+        .sort({ createdAt: -1 }),
+      LocationCurrent.find({}),
+    ]);
 
-    res.status(200).json({ success: true, salesmen });
+    const locMap = new Map();
+    locations.forEach((l) => locMap.set(l.salesman.toString(), l));
+
+    const enriched = salesmen.map((sm) => {
+      const sid = sm._id.toString();
+      const loc = locMap.get(sid);
+      const isConnected = isSalesmanConnected(sid);
+      const lastSeenTime = loc?.lastSeenAt ? new Date(loc.lastSeenAt).getTime() : 0;
+      const ageSeconds = lastSeenTime ? (Date.now() - lastSeenTime) / 1000 : Infinity;
+      const isOnline = isConnected && ageSeconds <= 40;
+      const trackingStatus = isOnline ? 'live' : (ageSeconds <= 120 ? 'stale' : 'offline');
+
+      const doc = sm.toObject();
+      doc.isOnline = isOnline;
+      doc.trackingStatus = trackingStatus;
+      doc.lastSeenAt = loc?.lastSeenAt || null;
+      doc.liveLocation = loc
+        ? {
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            speed: loc.speed || 0,
+            address: loc.address || '',
+            battery: loc.battery,
+          }
+        : null;
+      return doc;
+    });
+
+    res.status(200).json({ success: true, salesmen: enriched });
   } catch (err) {
     console.error('getAllSalesmen error:', err);
     res.status(500).json({ success: false, message: 'Failed to fetch salesmen' });

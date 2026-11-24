@@ -33,6 +33,10 @@ function isSalesmanConnected(salesmanId) {
   return !!(set && set.size > 0);
 }
 
+function getActiveSalesmenIds() {
+  return Array.from(activeSalesmanSockets.keys());
+}
+
 function initSocket(server) {
   const io = new Server(server, {
     cors: {
@@ -43,6 +47,47 @@ function initSocket(server) {
   });
 
   ioInstance = io;
+
+  // On server startup: reset any stale 'online' states in database from previous runs
+  LocationCurrent.updateMany({}, { isOnline: false, trackingStatus: 'offline' })
+    .then(() => console.log('[Socket] Cleaned stale online tracking states on startup'))
+    .catch((err) => console.error('[Socket] Startup cleanup error:', err));
+
+  // Periodic Watchdog (Every 15s): Verify active socket presence and heartbeat freshness
+  setInterval(async () => {
+    try {
+      const staleThreshold = new Date(Date.now() - 40 * 1000); // 40 seconds threshold (heartbeats are every 15s)
+      const onlineRecords = await LocationCurrent.find({ isOnline: true });
+      for (const rec of onlineRecords) {
+        const sid = rec.salesman?.toString();
+        if (!sid) continue;
+
+        const isConnected = isSalesmanConnected(sid);
+        const isRecent = rec.lastSeenAt && new Date(rec.lastSeenAt) >= staleThreshold;
+
+        if (!isConnected || !isRecent) {
+          rec.isOnline = false;
+          rec.trackingStatus = 'offline';
+          rec.speed = 0;
+          await rec.save();
+
+          if (ioInstance) {
+            ioInstance.to('admin:tracking').emit('admin:salesman:status', {
+              salesmanId: sid,
+              salesmanName: rec.salesmanName,
+              isOnline: false,
+              trackingStatus: 'offline',
+              speed: 0,
+              lastSeenAt: rec.lastSeenAt || new Date(),
+            });
+          }
+          console.log(`[Watchdog] Stale/disconnected salesman ${sid} (${rec.salesmanName}) marked OFFLINE`);
+        }
+      }
+    } catch (err) {
+      console.error('[Watchdog Error]:', err.message);
+    }
+  }, 15000);
 
   io.on('connection', (socket) => {
     // Admin joins tracking radar room
@@ -90,7 +135,35 @@ function initSocket(server) {
         lastSeenAt: now,
       });
 
-      console.log(`[Socket] Salesman ${sid} (${salesmanName}) connected & marked LIVE`);
+      console.log(`[Socket] Salesman ${sid} (${salesmanName}) connected & marked LIVE ONLINE`);
+    });
+
+    // Explicit salesman offline announcement (e.g. on logout or before tab close)
+    socket.on('salesman:offline', async (data = {}) => {
+      const sid = socket.salesmanId || data.salesmanId;
+      if (!sid) return;
+
+      const set = activeSalesmanSockets.get(sid.toString());
+      if (set) {
+        set.delete(socket.id);
+        if (set.size === 0) activeSalesmanSockets.delete(sid.toString());
+      }
+
+      const now = new Date();
+      await LocationCurrent.findOneAndUpdate(
+        { salesman: sid },
+        { isOnline: false, trackingStatus: 'offline', speed: 0, lastSeenAt: now }
+      );
+
+      io.to('admin:tracking').emit('admin:salesman:status', {
+        salesmanId: sid,
+        isOnline: false,
+        trackingStatus: 'offline',
+        speed: 0,
+        lastSeenAt: now,
+      });
+
+      console.log(`[Socket] Salesman ${sid} explicitly marked OFFLINE`);
     });
 
     // Periodic Heartbeat from active salesman device
@@ -253,19 +326,22 @@ function initSocket(server) {
 
         setTimeout(async () => {
           if (!isSalesmanConnected(sid)) {
+            const now = new Date();
             await LocationCurrent.findOneAndUpdate(
               { salesman: sid },
-              { isOnline: false, trackingStatus: 'offline' }
+              { isOnline: false, trackingStatus: 'offline', lastSeenAt: now }
             );
-            io.to('admin:tracking').emit('admin:salesman:status', {
-              salesmanId: sid,
-              isOnline: false,
-              trackingStatus: 'offline',
-              lastSeenAt: new Date(),
-            });
+            if (ioInstance) {
+              ioInstance.to('admin:tracking').emit('admin:salesman:status', {
+                salesmanId: sid,
+                isOnline: false,
+                trackingStatus: 'offline',
+                lastSeenAt: now,
+              });
+            }
             console.log(`[Socket] Salesman ${sid} disconnected & marked OFFLINE`);
           }
-        }, 20000);
+        }, 3000); // 3s grace for quick page reload
       }
     });
   });
@@ -277,4 +353,4 @@ function getIO() {
   return ioInstance;
 }
 
-module.exports = { initSocket, getIO };
+module.exports = { initSocket, getIO, isSalesmanConnected, getActiveSalesmenIds };

@@ -155,8 +155,8 @@ const Dashboard = () => {
               name: salesmanName || s.name,
               salesmanCode: salesmanCode || s.salesmanCode,
               territory: territory || s.territory,
-              isOnline: isOnline ?? (trackingStatus === 'live'),
-              trackingStatus: trackingStatus || s.trackingStatus,
+              isOnline: isOnline === true && trackingStatus === 'live',
+              trackingStatus: trackingStatus || (isOnline ? 'live' : 'offline'),
               lastSeenAt: lastSeenAt || s.lastSeenAt,
               battery: battery != null ? battery : s.battery,
               latitude: latitude != null ? latitude : s.latitude,
@@ -173,8 +173,8 @@ const Dashboard = () => {
             name: salesmanName || 'Salesman',
             salesmanCode: salesmanCode || 'N/A',
             territory: territory || 'Field',
-            isOnline: isOnline ?? (trackingStatus === 'live'),
-            trackingStatus: trackingStatus || 'live',
+            isOnline: isOnline === true && trackingStatus === 'live',
+            trackingStatus: trackingStatus || 'offline',
             lastSeenAt: lastSeenAt || new Date(),
             battery: battery != null ? battery : null,
             latitude: latitude != null ? latitude : null,
@@ -260,14 +260,13 @@ const Dashboard = () => {
   const completedCount = visits.filter((v) => v.status === 'Completed').length;
 
   // Live Salesmen counts for Admin view
-  const onlineSalesmenCount = liveSalesmen.filter(
-    (s) => s.trackingStatus === 'live' || s.isOnline
-  ).length;
+  const isSalesmanTrulyLive = (s) => Boolean(s.isOnline && s.trackingStatus === 'live');
+  const onlineSalesmenCount = liveSalesmen.filter(isSalesmanTrulyLive).length;
   const offlineSalesmenCount = liveSalesmen.length - onlineSalesmenCount;
 
   const filteredRosterSalesmen = liveSalesmen.filter((s) => {
-    if (salesmanRosterTab === 'online') return s.trackingStatus === 'live' || s.isOnline;
-    if (salesmanRosterTab === 'offline') return !(s.trackingStatus === 'live' || s.isOnline);
+    if (salesmanRosterTab === 'online') return isSalesmanTrulyLive(s);
+    if (salesmanRosterTab === 'offline') return !isSalesmanTrulyLive(s);
     return true;
   });
 
@@ -612,7 +611,7 @@ const Dashboard = () => {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredRosterSalesmen.map((sm) => {
-                    const isOnline = sm.trackingStatus === 'live' || sm.isOnline;
+                    const isOnline = Boolean(sm.isOnline && sm.trackingStatus === 'live');
                     const speed = sm.speed || 0;
                     const isMoving = speed > 2;
 

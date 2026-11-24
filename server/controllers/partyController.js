@@ -14,17 +14,23 @@ exports.getAllParties = async (req, res) => {
   try {
     const { search = '', city = '', salesman = '', status = '', page = 1, limit = 50 } = req.query;
 
-    const query = {};
+    const andConditions = [];
+
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { shopName: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } },
-        { partyCode: { $regex: search, $options: 'i' } },
-      ];
+      andConditions.push({
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { shopName: { $regex: search, $options: 'i' } },
+          { phone: { $regex: search, $options: 'i' } },
+          { address: { $regex: search, $options: 'i' } },
+          { partyCode: { $regex: search, $options: 'i' } },
+        ],
+      });
     }
-    if (city) query.city = { $regex: city, $options: 'i' };
+
+    if (city) {
+      andConditions.push({ city: { $regex: city, $options: 'i' } });
+    }
 
     const isStaffAdmin =
       req.user?.roleSlug === 'super_admin' ||
@@ -35,13 +41,24 @@ exports.getAllParties = async (req, res) => {
 
     const isSalesman = !isStaffAdmin && !!req.user?.salesmanProfile;
     if (isSalesman) {
-      // Salesman sees only his assigned customers
-      query.assignedSalesman = req.user.salesmanProfile._id || req.user.salesmanProfile;
+      const sid = req.user.salesmanProfile._id || req.user.salesmanProfile;
+      // Salesman sees customers assigned directly to him OR open pool / unassigned customers
+      andConditions.push({
+        $or: [
+          { assignedSalesman: sid },
+          { assignedSalesman: null },
+          { assignedSalesman: { $exists: false } },
+        ],
+      });
     } else if (salesman) {
-      query.assignedSalesman = salesman;
+      andConditions.push({ assignedSalesman: salesman });
     }
 
-    if (status) query.isActive = status === 'active';
+    if (status) {
+      andConditions.push({ isActive: status === 'active' });
+    }
+
+    const query = andConditions.length > 0 ? { $and: andConditions } : {};
 
     const skip = (Number(page) - 1) * Number(limit);
     const [parties, total] = await Promise.all([

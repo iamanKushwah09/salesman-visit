@@ -97,16 +97,21 @@ exports.createRoute = async (req, res) => {
     // Map sequenced parties
     let mappedParties = [];
     if (Array.isArray(parties) && parties.length > 0) {
-      const partyDocs = await Party.find({ _id: { $in: parties } }).select('name shopName address phone latitude longitude');
+      const extractedIds = parties
+        .map((p) => (typeof p === 'object' && p !== null ? (p.party || p._id) : p))
+        .filter(Boolean);
+
+      const partyDocs = await Party.find({ _id: { $in: extractedIds } }).select('name shopName address phone latitude longitude');
       const partyMap = new Map();
       partyDocs.forEach((p) => partyMap.set(p._id.toString(), p));
 
-      mappedParties = parties.map((pid, idx) => {
-        const pDoc = partyMap.get(pid.toString());
+      mappedParties = parties.map((item, idx) => {
+        const pid = typeof item === 'object' && item !== null ? (item.party || item._id) : item;
+        const pDoc = partyMap.get(pid ? pid.toString() : '');
         return {
           party: pid,
           partyName: pDoc ? `${pDoc.name}${pDoc.shopName ? ' (' + pDoc.shopName + ')' : ''}` : 'Customer',
-          sequence: idx + 1,
+          sequence: typeof item === 'object' && item?.sequence ? Number(item.sequence) : idx + 1,
           status: 'Pending',
           collectionAmount: 0,
         };

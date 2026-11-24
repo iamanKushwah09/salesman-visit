@@ -1,7 +1,118 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import api from '../services/api';
 import Navbar from '../components/Navbar';
-import { Building2, Plus, Edit2, Trash2, Search, MapPin, IndianRupee, Phone, User, X } from 'lucide-react';
+import {
+  Building2,
+  Plus,
+  Edit2,
+  Trash2,
+  Search,
+  MapPin,
+  IndianRupee,
+  Phone,
+  User,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Map,
+  Compass,
+} from 'lucide-react';
+
+const MiniMapPicker = ({ lat, lng, onSelectLocation }) => {
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+
+  useEffect(() => {
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
+
+    const initialLat = Number(lat) || 20.5937;
+    const initialLng = Number(lng) || 78.9629;
+    const zoomLevel = lat && lng ? 15 : 5;
+
+    const map = L.map(mapContainerRef.current, {
+      center: [initialLat, initialLng],
+      zoom: zoomLevel,
+      zoomControl: true,
+    });
+    mapInstanceRef.current = map;
+
+    L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: '&copy; Google Maps',
+    }).addTo(map);
+
+    const pinIcon = L.divIcon({
+      className: 'custom-pin-icon',
+      html: `
+        <div style="display:flex; flex-direction:column; align-items:center; transform: translate(-50%, -100%); pointer-events:auto;">
+          <div style="background:#2563eb; color:white; font-size:10px; font-weight:700; padding:2px 8px; border-radius:9999px; white-space:nowrap; margin-bottom:2px; box-shadow:0 3px 8px rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.5);">
+            Customer Location
+          </div>
+          <div style="width:24px; height:24px; border-radius:50%; background:#2563eb; border:3px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center;">
+            <div style="width:6px; height:6px; border-radius:50%; background:white;"></div>
+          </div>
+        </div>
+      `,
+      iconSize: [24, 24],
+      iconAnchor: [12, 24],
+    });
+
+    let marker = null;
+    if (lat && lng) {
+      marker = L.marker([initialLat, initialLng], { icon: pinIcon, draggable: true }).addTo(map);
+      markerRef.current = marker;
+
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng();
+        onSelectLocation(Number(pos.lat.toFixed(6)), Number(pos.lng.toFixed(6)));
+      });
+    }
+
+    map.on('click', (e) => {
+      const clickLat = Number(e.latlng.lat.toFixed(6));
+      const clickLng = Number(e.latlng.lng.toFixed(6));
+      if (!markerRef.current) {
+        markerRef.current = L.marker([clickLat, clickLng], { icon: pinIcon, draggable: true }).addTo(map);
+        markerRef.current.on('dragend', () => {
+          const pos = markerRef.current.getLatLng();
+          onSelectLocation(Number(pos.lat.toFixed(6)), Number(pos.lng.toFixed(6)));
+        });
+      } else {
+        markerRef.current.setLatLng([clickLat, clickLng]);
+      }
+      onSelectLocation(clickLat, clickLng);
+    });
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mapInstanceRef.current && lat && lng) {
+      const target = [Number(lat), Number(lng)];
+      mapInstanceRef.current.setView(target, 15);
+      if (markerRef.current) {
+        markerRef.current.setLatLng(target);
+      }
+    }
+  }, [lat, lng]);
+
+  return (
+    <div className="relative mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-inner">
+      <div ref={mapContainerRef} style={{ height: '200px', width: '100%' }} />
+      <div className="absolute bottom-2 left-2 right-2 bg-slate-900/80 backdrop-blur-xs text-[10px] text-white font-medium px-2.5 py-1.5 rounded-lg border border-white/20 shadow-xs pointer-events-none z-[1000] flex items-center justify-between">
+        <span>📍 Click or drag anywhere on map to set exact shop location</span>
+        {lat && lng && <span className="font-mono text-amber-300 font-bold">{lat}, {lng}</span>}
+      </div>
+    </div>
+  );
+};
 
 const PartiesManagement = () => {
   const [parties, setParties] = useState([]);
@@ -18,13 +129,19 @@ const PartiesManagement = () => {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
-  const [city, setCity] = useState('Indore');
-  const [territory, setTerritory] = useState('Indore Central');
+  const [city, setCity] = useState('');
+  const [territory, setTerritory] = useState('');
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [assignedSalesmanId, setAssignedSalesmanId] = useState('');
   const [creditLimit, setCreditLimit] = useState(50000);
   const [outstandingBalance, setOutstandingBalance] = useState(0);
+
+  // GPS Geocoding & Map Picker States
+  const [geocodingLoading, setGeocodingLoading] = useState(false);
+  const [geocodingSuccess, setGeocodingSuccess] = useState('');
+  const [geocodingError, setGeocodingError] = useState('');
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -58,13 +175,16 @@ const PartiesManagement = () => {
     setPhone('');
     setEmail('');
     setAddress('');
-    setCity('Indore');
-    setTerritory('Indore Central');
+    setCity('');
+    setTerritory('');
     setLatitude('');
     setLongitude('');
     setAssignedSalesmanId(salesmen.length > 0 ? salesmen[0]._id : '');
     setCreditLimit(50000);
     setOutstandingBalance(0);
+    setGeocodingSuccess('');
+    setGeocodingError('');
+    setShowMapPicker(false);
     setFormError('');
     setModalOpen(true);
   };
@@ -77,15 +197,82 @@ const PartiesManagement = () => {
     setPhone(p.phone || '');
     setEmail(p.email || '');
     setAddress(p.address || '');
-    setCity(p.city || 'Indore');
-    setTerritory(p.territory || 'Indore Central');
+    setCity(p.city || '');
+    setTerritory(p.territory || '');
     setLatitude(p.latitude ? String(p.latitude) : '');
     setLongitude(p.longitude ? String(p.longitude) : '');
     setAssignedSalesmanId(p.assignedSalesman?._id || p.assignedSalesman || '');
     setCreditLimit(p.creditLimit || 50000);
     setOutstandingBalance(p.outstandingBalance || 0);
+    setGeocodingSuccess('');
+    setGeocodingError('');
+    setShowMapPicker(false);
     setFormError('');
     setModalOpen(true);
+  };
+
+  // Auto-Detect GPS Coordinates from Address using Google Maps / Geocoding
+  const handleAutoDetectGPS = async () => {
+    setGeocodingError('');
+    setGeocodingSuccess('');
+
+    if (!address?.trim() && !city?.trim()) {
+      setGeocodingError('Please enter Street Address or City above to detect coordinates');
+      return;
+    }
+
+    try {
+      setGeocodingLoading(true);
+      const res = await api.get('/tracking/geocode-address', {
+        params: {
+          address: address.trim(),
+          city: city.trim(),
+        },
+      });
+
+      if (res?.success && res.latitude != null && res.longitude != null) {
+        setLatitude(String(res.latitude));
+        setLongitude(String(res.longitude));
+        const providerLabel = res.provider === 'google' ? 'Google Maps' : 'Satellite Geocoder';
+        setGeocodingSuccess(`✓ Location detected via ${providerLabel}: [${res.latitude}, ${res.longitude}]`);
+        setShowMapPicker(true);
+      } else {
+        throw new Error(res.message || 'Could not find coordinates for this address');
+      }
+    } catch (err) {
+      setGeocodingError(err.message || 'Failed to detect GPS coordinates. You can type them manually or use My Current Location.');
+    } finally {
+      setGeocodingLoading(false);
+    }
+  };
+
+  // Capture Current Device GPS Location
+  const handleUseCurrentLocation = () => {
+    setGeocodingError('');
+    setGeocodingSuccess('');
+
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      setGeocodingError('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setGeocodingLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeocodingLoading(false);
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        setLatitude(String(lat));
+        setLongitude(String(lng));
+        setGeocodingSuccess(`✓ Device GPS captured: [${lat}, ${lng}] (~${Math.round(pos.coords.accuracy)}m accuracy)`);
+        setShowMapPicker(true);
+      },
+      (err) => {
+        setGeocodingLoading(false);
+        setGeocodingError(`Device GPS error: ${err.message}. Please allow location permission.`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const handleSubmit = async (e) => {
@@ -268,23 +455,28 @@ const PartiesManagement = () => {
 
       {/* Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
               <h3 className="font-bold text-sm text-slate-900">
                 {editingParty ? `Edit Customer: ${editingParty.name}` : 'Register New Customer Party'}
               </h3>
-              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer transition"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-3.5 text-xs">
-              {formError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-semibold">
-                  {formError}
-                </div>
-              )}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0">
+              <div className="p-6 overflow-y-auto space-y-3.5 text-xs flex-1">
+                {formError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-semibold">
+                    {formError}
+                  </div>
+                )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -352,7 +544,7 @@ const PartiesManagement = () => {
                     type="text"
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
-                    placeholder="Indore"
+                    placeholder="e.g. Mumbai"
                     className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                   />
                 </div>
@@ -362,35 +554,132 @@ const PartiesManagement = () => {
                     type="text"
                     value={territory}
                     onChange={(e) => setTerritory(e.target.value)}
-                    placeholder="Indore Central"
+                    placeholder="e.g. North Zone"
                     className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Latitude (GPS)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={latitude}
-                    onChange={(e) => setLatitude(e.target.value)}
-                    placeholder="22.7196"
-                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
-                  />
+              {/* GPS Coordinates Header & Smart Auto-Detect Toolbar */}
+              <div className="space-y-2 pt-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="block text-slate-700 font-bold text-xs">
+                    GPS Coordinates (Map Pinpoint)
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleAutoDetectGPS}
+                      disabled={geocodingLoading || (!address && !city)}
+                      title="Fetch GPS Coordinates using Google Maps / Address Geocoding"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
+                    >
+                      {geocodingLoading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Search className="w-3.5 h-3.5 text-indigo-600" />
+                      )}
+                      <span>Detect from Address</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleUseCurrentLocation}
+                      disabled={geocodingLoading}
+                      title="Capture your device / phone current location"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer shadow-xs active:scale-95"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>My Location</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowMapPicker(!showMapPicker)}
+                      title="Show / Hide interactive map to pick exact location"
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border transition cursor-pointer shadow-xs active:scale-95 ${
+                        showMapPicker
+                          ? 'bg-brand-600 text-white border-brand-600'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
+                      }`}
+                    >
+                      <Map className="w-3.5 h-3.5" />
+                      <span>{showMapPicker ? 'Hide Map' : 'Pick on Map'}</span>
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Longitude (GPS)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={longitude}
-                    onChange={(e) => setLongitude(e.target.value)}
-                    placeholder="75.8577"
-                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
-                  />
+
+                {/* Status alerts */}
+                {geocodingSuccess && (
+                  <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold flex items-center justify-between gap-2 shadow-xs">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="truncate">{geocodingSuccess}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setGeocodingSuccess('')}
+                      className="text-emerald-700 hover:text-emerald-950 font-bold px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {geocodingError && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold flex items-center justify-between gap-2 shadow-xs">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span className="truncate">{geocodingError}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setGeocodingError('')}
+                      className="text-rose-700 hover:text-rose-950 font-bold px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {/* Coordinate Inputs */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-600 font-semibold text-[11px] mb-1">Latitude (GPS)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={latitude}
+                      onChange={(e) => setLatitude(e.target.value)}
+                      placeholder="e.g. 27.0276"
+                      className="w-full text-xs font-mono font-medium border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 font-semibold text-[11px] mb-1">Longitude (GPS)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={longitude}
+                      onChange={(e) => setLongitude(e.target.value)}
+                      placeholder="e.g. 78.2074"
+                      className="w-full text-xs font-mono font-medium border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                    />
+                  </div>
                 </div>
+
+                {/* Interactive Leaflet Map with Google Maps Roadmap Tiles */}
+                {showMapPicker && (
+                  <MiniMapPicker
+                    lat={latitude}
+                    lng={longitude}
+                    onSelectLocation={(newLat, newLng) => {
+                      setLatitude(String(newLat));
+                      setLongitude(String(newLng));
+                      setGeocodingSuccess(`✓ Location updated on map: [${newLat}, ${newLng}]`);
+                    }}
+                  />
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -419,12 +708,14 @@ const PartiesManagement = () => {
                   />
                 </div>
               </div>
+            </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+            {/* Sticky Modal Action Footer */}
+              <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50/90 flex items-center justify-end gap-3 shrink-0">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200/70 rounded-xl transition cursor-pointer"
                 >
                   Cancel
                 </button>

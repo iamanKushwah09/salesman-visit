@@ -37,7 +37,7 @@ const SalesmanManagement = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [territory, setTerritory] = useState('Indore Central');
+  const [territory, setTerritory] = useState('');
   const [vehicleType, setVehicleType] = useState('Bike / Scooter');
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [monthlyTarget, setMonthlyTarget] = useState(150000);
@@ -85,7 +85,8 @@ const SalesmanManagement = () => {
         [id]: {
           ...(prev[id] || {}),
           ...data,
-          isOnline: data.isOnline ?? (data.trackingStatus === 'live'),
+          isOnline: data.isOnline === true && data.trackingStatus === 'live',
+          trackingStatus: data.trackingStatus || (data.isOnline ? 'live' : 'offline'),
         },
       }));
     };
@@ -106,7 +107,7 @@ const SalesmanManagement = () => {
     setEmail('');
     setPassword('');
     setShowPassword(false);
-    setTerritory('Indore Central');
+    setTerritory('');
     setVehicleType('Bike / Scooter');
     setVehicleNumber('');
     setMonthlyTarget(150000);
@@ -122,7 +123,7 @@ const SalesmanManagement = () => {
     setEmail(sm.email || sm.user?.email || '');
     setPassword('');
     setShowPassword(false);
-    setTerritory(sm.territory || 'Indore Central');
+    setTerritory(sm.territory || '');
     setVehicleType(sm.vehicleType || 'Bike / Scooter');
     setVehicleNumber(sm.vehicleNumber || '');
     setMonthlyTarget(sm.monthlyTarget || 150000);
@@ -239,9 +240,13 @@ const SalesmanManagement = () => {
             </div>
           ) : (
             salesmen.map((sm) => {
-              const liveData = liveLocationMap[sm._id?.toString()];
-              const isOnline = liveData?.trackingStatus === 'live' || liveData?.isOnline;
-              const speed = liveData?.speed || 0;
+              const sid = sm._id?.toString();
+              const liveData = liveLocationMap[sid];
+              const isOnline = liveData
+                ? Boolean(liveData.isOnline && liveData.trackingStatus === 'live')
+                : Boolean(sm.isOnline && sm.trackingStatus === 'live');
+              const isIdle = !isOnline && ((liveData?.trackingStatus === 'stale') || (sm.trackingStatus === 'stale'));
+              const speed = liveData?.speed || sm.liveLocation?.speed || 0;
 
               return (
                 <div
@@ -249,6 +254,8 @@ const SalesmanManagement = () => {
                   className={`rounded-2xl border p-5 shadow-xs space-y-4 hover:shadow-md transition ${
                     isOnline
                       ? 'bg-emerald-50/20 border-emerald-200/90'
+                      : isIdle
+                      ? 'bg-amber-50/20 border-amber-200/80'
                       : 'bg-white border-slate-200/90'
                   }`}
                 >
@@ -259,14 +266,20 @@ const SalesmanManagement = () => {
                           className={`w-11 h-11 rounded-2xl text-white font-black flex items-center justify-center text-sm shadow-md ${
                             isOnline
                               ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 shadow-emerald-500/20'
-                              : 'bg-gradient-to-tr from-brand-600 to-indigo-600 shadow-brand-500/20'
+                              : isIdle
+                              ? 'bg-gradient-to-tr from-amber-600 to-orange-500 shadow-amber-500/20'
+                              : 'bg-gradient-to-tr from-slate-600 to-slate-700 shadow-slate-500/10'
                           }`}
                         >
                           {sm.name ? sm.name.charAt(0).toUpperCase() : 'S'}
                         </div>
                         <span
                           className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${
-                            isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                            isOnline
+                              ? 'bg-emerald-500 animate-pulse'
+                              : isIdle
+                              ? 'bg-amber-400'
+                              : 'bg-slate-300'
                           }`}
                         />
                       </div>
@@ -286,9 +299,13 @@ const SalesmanManagement = () => {
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-full">
                               {speed > 2 ? `${speed} km/h` : 'LIVE ONLINE'}
                             </span>
+                          ) : isIdle ? (
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded-full">
+                              IDLE / INACTIVE
+                            </span>
                           ) : (
-                            <span className="text-[10px] font-medium text-slate-400">
-                              Offline
+                            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded-full">
+                              OFFLINE
                             </span>
                           )}
                         </div>
@@ -459,7 +476,7 @@ const SalesmanManagement = () => {
                       type="text"
                       value={territory}
                       onChange={(e) => setTerritory(e.target.value)}
-                      placeholder="e.g. Vijay Nagar, Indore"
+                      placeholder="e.g. North Zone, Main Market"
                       required
                       className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                     />

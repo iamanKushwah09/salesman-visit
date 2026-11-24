@@ -16,18 +16,9 @@ const getApiBaseUrl = () => {
     return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
   }
 
-  // 3. Cloud / Production fallback: if running on a live domain (Render, Railway, custom domain), use origin
-  if (
-    typeof window !== 'undefined' &&
-    window.location.origin &&
-    !window.location.origin.includes('localhost') &&
-    !window.location.origin.includes('127.0.0.1')
-  ) {
-    return `${window.location.origin}/api`;
-  }
-
-  // 4. Default local development server
-  return 'http://localhost:5070/api';
+  // 3. In browser environment, use relative '/api'
+  // This seamlessly works on localhost, local Wi-Fi IP, and HTTPS tunnels via Vite reverse proxy
+  return '/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();

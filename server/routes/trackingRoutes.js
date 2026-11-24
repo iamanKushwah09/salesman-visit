@@ -10,6 +10,7 @@ router.use(protect);
 router.get('/live-locations', trackingController.getLiveLocations);
 router.get('/history/:salesmanId', trackingController.getLocationHistory);
 router.get('/directions', directionsController.getDirections);
+router.get('/geocode-address', trackingController.geocodeAddress);
 router.post('/update-location', trackingController.updateLocationRest);
 
 module.exports = router;
