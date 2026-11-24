@@ -53,6 +53,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    try {
+      api.post('/auth/logout').catch(() => {});
+    } catch (e) {}
     localStorage.removeItem('salesman_visit_token');
     localStorage.removeItem('salesman_visit_user');
     localStorage.removeItem('fieldpulse_token');

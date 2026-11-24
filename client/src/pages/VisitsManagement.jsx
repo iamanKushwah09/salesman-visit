@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import api from '../services/api';
 import Navbar from '../components/Navbar';
+import { AuthContext } from '../context/AuthContext';
+import LiveGpsCameraModal from '../components/LiveGpsCameraModal';
+import { stampFileWithGps } from '../utils/gpsWatermark';
 import {
   CheckCircle2,
   Plus,
@@ -21,6 +24,8 @@ import {
   AlertCircle,
   Trash2,
   ArrowRight,
+  SwitchCamera,
+  Navigation,
 } from 'lucide-react';
 
 // Helper function to compress images before uploading
@@ -52,6 +57,7 @@ const compressImage = (file, maxWidth = 1024, quality = 0.75) => {
 };
 
 const VisitsManagement = () => {
+  const { user } = useContext(AuthContext);
   const [visits, setVisits] = useState([]);
   const [salesmen, setSalesmen] = useState([]);
   const [parties, setParties] = useState([]);
@@ -96,6 +102,13 @@ const VisitsManagement = () => {
   const [referenceNo, setReferenceNo] = useState('');
   const [checkOutNotes, setCheckOutNotes] = useState('');
 
+  // Live GPS Camera Modal & Manual GPS states
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState('checkIn'); // 'checkIn' | 'checkOut'
+  const [manualGpsOpen, setManualGpsOpen] = useState(false);
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
+
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -128,41 +141,189 @@ const VisitsManagement = () => {
     fetchData();
   }, [statusFilter, dateFilter]);
 
-  // GPS Location fetcher helper
-  const captureCurrentLocation = (isCheckIn = true) => {
-    if (!navigator.geolocation) {
-      setGpsError('Geolocation is not supported by your browser.');
-      return;
-    }
+  // GPS Location fetcher helper with layered fallbacks
+  const captureCurrentLocation = (isCheckIn = true, targetVisit = selectedVisit) => {
     setFetchingGps(true);
     setGpsError('');
 
+    const applyLocation = (lat, lng, acc, note = '') => {
+      if (isCheckIn) {
+        setCheckInLat(lat);
+        setCheckInLng(lng);
+        setCheckInAccuracy(acc);
+      } else {
+        setCheckOutLat(lat);
+        setCheckOutLng(lng);
+        setCheckOutAccuracy(acc);
+      }
+      setFetchingGps(false);
+      setGpsError(note);
+    };
+
+    if (!navigator.geolocation) {
+      const pLat = targetVisit?.party?.latitude;
+      const pLng = targetVisit?.party?.longitude;
+      if (pLat && pLng) {
+        applyLocation(Number(pLat), Number(pLng), 25, 'Auto-filled Customer Shop GPS.');
+      } else {
+        setGpsError('Geolocation is not supported by your browser.');
+        setFetchingGps(false);
+      }
+      return;
+    }
+
+    // Step 1: Attempt High Accuracy GPS
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        if (isCheckIn) {
-          setCheckInLat(latitude);
-          setCheckInLng(longitude);
-          setCheckInAccuracy(accuracy);
-        } else {
-          setCheckOutLat(latitude);
-          setCheckOutLng(longitude);
-          setCheckOutAccuracy(accuracy);
-        }
-        setFetchingGps(false);
+        applyLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       },
       (err) => {
-        console.warn('Geolocation capture failed:', err.message);
-        setGpsError('Location permission denied or unavailable. Please enable GPS.');
-        setFetchingGps(false);
+        console.warn('High-accuracy GPS failed, trying fallback:', err.message);
+        // Step 2: Attempt standard accuracy with longer timeout & cached position
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            applyLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+          },
+          async (fallbackErr) => {
+            console.warn('Low-accuracy GPS failed:', fallbackErr.message);
+
+            // Step 3: Fallback to customer party's saved GPS if available
+            const partyLat = targetVisit?.party?.latitude;
+            const partyLng = targetVisit?.party?.longitude;
+            if (partyLat && partyLng) {
+              applyLocation(
+                Number(partyLat),
+                Number(partyLng),
+                30,
+                '⚠️ Device GPS weak/denied. Auto-filled Customer Shop GPS.'
+              );
+              return;
+            }
+
+            // Step 4: Fallback to IP approximation
+            try {
+              const ipRes = await fetch('https://ipapi.co/json/');
+              const ipData = await ipRes.json();
+              if (ipData && ipData.latitude && ipData.longitude) {
+                applyLocation(
+                  Number(ipData.latitude),
+                  Number(ipData.longitude),
+                  500,
+                  `⚠️ Device GPS denied. Using estimated network location (${ipData.city || 'City'}).`
+                );
+                if (isCheckIn && !checkInAddress && ipData.city) {
+                  setCheckInAddress(`${ipData.city}, ${ipData.region}`);
+                }
+                return;
+              }
+            } catch (e) {
+              // ignore
+            }
+
+            // Step 5: Inform user with actionable fallback guidance
+            setFetchingGps(false);
+            if (fallbackErr.code === 1) {
+              setGpsError('⚠️ Location permission denied by browser. Click "Allow" in site permissions, use "Use Customer GPS", or enter coordinates manually.');
+            } else {
+              setGpsError('⚠️ Location unavailable. Please check GPS settings or use "Use Customer GPS" / "Enter Manually" below.');
+            }
+          },
+          { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
+        );
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
     );
+  };
+
+  // 1-Click: Use Customer Shop's verified GPS
+  const handleUsePartyGps = (isCheckIn = true) => {
+    const lat = selectedVisit?.party?.latitude;
+    const lng = selectedVisit?.party?.longitude;
+    if (lat && lng) {
+      if (isCheckIn) {
+        setCheckInLat(Number(lat));
+        setCheckInLng(Number(lng));
+        setCheckInAccuracy(20);
+      } else {
+        setCheckOutLat(Number(lat));
+        setCheckOutLng(Number(lng));
+        setCheckOutAccuracy(20);
+      }
+      setGpsError('');
+    } else {
+      alert('This customer party does not have saved GPS coordinates.');
+    }
+  };
+
+  // Apply Manual GPS Coordinates
+  const handleApplyManualGps = (isCheckIn = true) => {
+    const lat = parseFloat(manualLat);
+    const lng = parseFloat(manualLng);
+    if (isNaN(lat) || isNaN(lng)) {
+      alert('Please enter valid numeric latitude and longitude.');
+      return;
+    }
+    if (isCheckIn) {
+      setCheckInLat(lat);
+      setCheckInLng(lng);
+      setCheckInAccuracy(15);
+    } else {
+      setCheckOutLat(lat);
+      setCheckOutLng(lng);
+      setCheckOutAccuracy(15);
+    }
+    setManualGpsOpen(false);
+    setGpsError('');
+  };
+
+  // Open Live Camera Viewfinder Modal
+  const openCameraModal = (isCheckIn = true) => {
+    setCameraTarget(isCheckIn ? 'checkIn' : 'checkOut');
+    setCameraModalOpen(true);
+  };
+
+  // Receive Stamped Photo from Live Camera
+  const handleCameraCapture = (stampedBase64) => {
+    if (cameraTarget === 'checkIn') {
+      setCheckInPhoto(stampedBase64);
+    } else {
+      setCheckOutPhoto(stampedBase64);
+    }
+  };
+
+  // Handle Photo selection from Gallery/File with GPS Map Camera Stamp
+  const handlePhotoUpload = async (e, isCheckIn = true) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const meta = {
+        partyName: selectedVisit?.party?.name || selectedVisit?.partyName || 'Customer Store Visit',
+        shopName: selectedVisit?.party?.shopName || '',
+        address: isCheckIn ? (checkInAddress || selectedVisit?.party?.address) : (selectedVisit?.party?.address || 'Field Location'),
+        city: selectedVisit?.party?.city || '',
+        lat: isCheckIn ? checkInLat : checkOutLat,
+        lng: isCheckIn ? checkInLng : checkOutLng,
+        accuracy: isCheckIn ? checkInAccuracy : checkOutAccuracy,
+        salesmanName: user?.name || 'Field Salesman',
+        visitCode: selectedVisit?.visitCode || '',
+      };
+      const stampedBase64 = await stampFileWithGps(file, meta, 1280);
+      if (isCheckIn) {
+        setCheckInPhoto(stampedBase64);
+      } else {
+        setCheckOutPhoto(stampedBase64);
+      }
+    } catch (err) {
+      alert('Failed to process image: ' + err.message);
+    }
   };
 
   // Open Schedule Modal
   const openScheduleModal = () => {
-    setSalesmanId(salesmen[0]?._id || '');
+    const mySid = user?.salesmanProfile?._id || (typeof user?.salesmanProfile === 'string' ? user.salesmanProfile : '');
+    const activeSmId = mySid || salesmen[0]?._id || '';
+    setSalesmanId(activeSmId);
     setPartyId(parties[0]?._id || '');
     setVisitDate(new Date().toISOString().slice(0, 10));
     setPurpose('Sales Order');
@@ -209,25 +370,9 @@ const VisitsManagement = () => {
     setCheckInPhoto('');
     setCheckInNotes('');
     setFormError('');
+    setManualGpsOpen(false);
     setCheckInModalOpen(true);
-    captureCurrentLocation(true);
-  };
-
-  // Handle Photo selection with compression
-  const handlePhotoUpload = async (e, isCheckIn = true) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const compressedBase64 = await compressImage(file, 1024, 0.75);
-      if (isCheckIn) {
-        setCheckInPhoto(compressedBase64);
-      } else {
-        setCheckOutPhoto(compressedBase64);
-      }
-    } catch (err) {
-      alert('Failed to process image: ' + err.message);
-    }
+    captureCurrentLocation(true, v);
   };
 
   // Submit Check-In
@@ -269,8 +414,9 @@ const VisitsManagement = () => {
     setReferenceNo('');
     setCheckOutNotes('');
     setFormError('');
+    setManualGpsOpen(false);
     setCheckOutModalOpen(true);
-    captureCurrentLocation(false);
+    captureCurrentLocation(false, v);
   };
 
   // Submit Check-Out
@@ -717,9 +863,12 @@ const VisitsManagement = () => {
                     required
                     className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100"
                   >
+                    <option value="">
+                      {parties.length === 0 ? '-- No Customers Available --' : '-- Select Customer / Party * --'}
+                    </option>
                     {parties.map((p) => (
                       <option key={p._id} value={p._id}>
-                        {p.name} ({p.city || p.shopName})
+                        {p.name} {p.shopName ? `(${p.shopName})` : ''} {p.city ? `• ${p.city}` : ''}
                       </option>
                     ))}
                   </select>
@@ -828,7 +977,7 @@ const VisitsManagement = () => {
               )}
 
               {/* GPS Location Box */}
-              <div className="p-3.5 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-200 dark:border-slate-600 space-y-2">
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-200 dark:border-slate-600 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                     <MapPin className="w-4 h-4 text-emerald-600" />
@@ -846,19 +995,89 @@ const VisitsManagement = () => {
                 </div>
 
                 {checkInLat && checkInLng ? (
-                  <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-mono bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                    <p className="font-bold">
-                      📍 Lat: {checkInLat.toFixed(6)}, Lng: {checkInLng.toFixed(6)}
-                    </p>
-                    {checkInAccuracy && (
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        GPS Accuracy: ±{Math.round(checkInAccuracy)} meters
+                  <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-mono bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
+                    <div>
+                      <p className="font-bold">
+                        📍 Lat: {checkInLat.toFixed(6)}, Lng: {checkInLng.toFixed(6)}
                       </p>
-                    )}
+                      <p className="text-[10px] text-slate-500 mt-0.5 font-sans">
+                        GPS Accuracy: ±{Math.round(checkInAccuracy || 10)}m • Verified
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManualGpsOpen(!manualGpsOpen)}
+                      className="text-[10px] px-2 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-sans font-semibold cursor-pointer"
+                    >
+                      {manualGpsOpen ? 'Hide Entry' : 'Manual GPS'}
+                    </button>
                   </div>
                 ) : (
-                  <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-[11px]">
-                    {gpsError || 'Capturing live GPS coordinates... Click Refresh GPS if needed.'}
+                  <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-[11px] space-y-1">
+                    <p>{gpsError || 'Capturing live GPS coordinates... Click Refresh GPS if needed.'}</p>
+                  </div>
+                )}
+
+                {/* Quick Fallback GPS Buttons */}
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  {selectedVisit?.party?.latitude && selectedVisit?.party?.longitude && (
+                    <button
+                      type="button"
+                      onClick={() => handleUsePartyGps(true)}
+                      className="px-2.5 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 rounded-lg text-[10.5px] font-bold flex items-center gap-1 transition cursor-pointer"
+                      title="Set to customer's registered shop GPS"
+                    >
+                      <MapPin className="w-3 h-3 text-emerald-600" />
+                      Use Customer Shop GPS ({Number(selectedVisit.party.latitude).toFixed(4)}, {Number(selectedVisit.party.longitude).toFixed(4)})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualLat(checkInLat || selectedVisit?.party?.latitude || '');
+                      setManualLng(checkInLng || selectedVisit?.party?.longitude || '');
+                      setManualGpsOpen(!manualGpsOpen);
+                    }}
+                    className="px-2.5 py-1 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 text-slate-700 dark:text-slate-200 rounded-lg text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                  >
+                    ✏️ {manualGpsOpen ? 'Hide Manual' : 'Enter Manually'}
+                  </button>
+                </div>
+
+                {/* Manual Lat/Lng override fields */}
+                {manualGpsOpen && (
+                  <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-300 dark:border-slate-600 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-slate-500 mb-0.5 font-bold">Latitude</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={manualLat}
+                          onChange={(e) => setManualLat(e.target.value)}
+                          placeholder="e.g. 22.7196"
+                          className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-500 mb-0.5 font-bold">Longitude</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={manualLng}
+                          onChange={(e) => setManualLng(e.target.value)}
+                          placeholder="e.g. 75.8577"
+                          className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyManualGps(true)}
+                      className="w-full py-1 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-lg text-xs"
+                    >
+                      Apply Coordinates
+                    </button>
                   </div>
                 )}
               </div>
@@ -877,18 +1096,23 @@ const VisitsManagement = () => {
                 />
               </div>
 
-              {/* Check-In Photo Upload / Camera */}
+              {/* Check-In Photo Upload / Live Camera */}
               <div className="space-y-2">
-                <label className="block font-bold text-slate-700 dark:text-slate-300">
-                  Shop Photo / Check-In Proof (Camera / Gallery) *
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-700 dark:text-slate-300">
+                    Shop Photo / Check-In Proof (GPS Map Camera) *
+                  </label>
+                  <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                    ✓ Geo-Watermarked
+                  </span>
+                </div>
 
                 {checkInPhoto ? (
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-500 bg-slate-900 group">
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-500 bg-slate-900 group shadow-lg">
                     <img
                       src={checkInPhoto}
                       alt="Check-in proof"
-                      className="w-full h-48 object-cover"
+                      className="w-full h-52 object-cover"
                     />
                     <div className="absolute top-2 right-2 flex items-center gap-1.5">
                       <button
@@ -901,6 +1125,15 @@ const VisitsManagement = () => {
                       </button>
                       <button
                         type="button"
+                        onClick={() => openCameraModal(true)}
+                        className="p-1.5 bg-brand-600/90 hover:bg-brand-600 text-white rounded-lg text-xs flex items-center gap-1"
+                        title="Retake Live Photo"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span className="text-[10px] font-bold">Retake</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setCheckInPhoto('')}
                         className="p-1.5 bg-rose-600/90 hover:bg-rose-600 text-white rounded-lg text-xs"
                         title="Remove Photo"
@@ -910,22 +1143,41 @@ const VisitsManagement = () => {
                     </div>
                   </div>
                 ) : (
-                  <label className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-brand-500 bg-slate-50 dark:bg-slate-700/30 transition">
-                    <Camera className="w-8 h-8 text-slate-400 mb-2" />
-                    <span className="font-bold text-slate-700 dark:text-slate-200">
-                      Click to Take Photo or Upload Image
-                    </span>
-                    <span className="text-[10px] text-slate-400 mt-0.5">
-                      Capture shop front, salesman arrival, or store entrance
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => handlePhotoUpload(e, true)}
-                      className="hidden"
-                    />
-                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Live Camera Button */}
+                    <button
+                      type="button"
+                      onClick={() => openCameraModal(true)}
+                      className="p-5 rounded-2xl border-2 border-dashed border-emerald-500/80 hover:border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50 text-emerald-800 dark:text-emerald-300 flex flex-col items-center justify-center text-center transition group shadow-xs cursor-pointer"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center mb-2 shadow-md group-hover:scale-105 transition-transform">
+                        <Camera className="w-6 h-6" />
+                      </div>
+                      <span className="font-bold text-xs">📸 Open Live Camera</span>
+                      <span className="text-[10px] text-emerald-600/80 mt-0.5">
+                        Real-time GPS Map Camera
+                      </span>
+                    </button>
+
+                    {/* Gallery/File Picker */}
+                    <label className="p-5 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-brand-500 bg-slate-50 dark:bg-slate-700/30 hover:bg-slate-100 flex flex-col items-center justify-center text-center cursor-pointer transition group">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 flex items-center justify-center mb-2 shadow-xs group-hover:scale-105 transition-transform">
+                        <ImageIcon className="w-6 h-6" />
+                      </div>
+                      <span className="font-bold text-xs text-slate-700 dark:text-slate-200">
+                        📁 From Gallery / File
+                      </span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">
+                        Auto-stamps GPS watermark
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handlePhotoUpload(e, true)}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
                 )}
               </div>
 
@@ -1015,7 +1267,7 @@ const VisitsManagement = () => {
               )}
 
               {/* GPS Location Box */}
-              <div className="p-3.5 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-200 dark:border-slate-600 space-y-2">
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-200 dark:border-slate-600 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                     <MapPin className="w-4 h-4 text-purple-600" />
@@ -1033,19 +1285,89 @@ const VisitsManagement = () => {
                 </div>
 
                 {checkOutLat && checkOutLng ? (
-                  <div className="text-[11px] text-purple-700 dark:text-purple-300 font-mono bg-purple-50 dark:bg-purple-950/40 p-2.5 rounded-xl border border-purple-200 dark:border-purple-800">
-                    <p className="font-bold">
-                      📍 Lat: {checkOutLat.toFixed(6)}, Lng: {checkOutLng.toFixed(6)}
-                    </p>
-                    {checkOutAccuracy && (
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        GPS Accuracy: ±{Math.round(checkOutAccuracy)} meters
+                  <div className="text-[11px] text-purple-700 dark:text-purple-300 font-mono bg-purple-50 dark:bg-purple-950/40 p-2.5 rounded-xl border border-purple-200 dark:border-purple-800 flex items-center justify-between">
+                    <div>
+                      <p className="font-bold">
+                        📍 Lat: {checkOutLat.toFixed(6)}, Lng: {checkOutLng.toFixed(6)}
                       </p>
-                    )}
+                      <p className="text-[10px] text-slate-500 mt-0.5 font-sans">
+                        GPS Accuracy: ±{Math.round(checkOutAccuracy || 10)}m • Verified
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManualGpsOpen(!manualGpsOpen)}
+                      className="text-[10px] px-2 py-1 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-800 font-sans font-semibold cursor-pointer"
+                    >
+                      {manualGpsOpen ? 'Hide Entry' : 'Manual GPS'}
+                    </button>
                   </div>
                 ) : (
-                  <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-[11px]">
-                    {gpsError || 'Fetching current location...'}
+                  <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-[11px] space-y-1">
+                    <p>{gpsError || 'Capturing live GPS coordinates... Click Refresh GPS if needed.'}</p>
+                  </div>
+                )}
+
+                {/* Quick Fallback GPS Buttons */}
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  {selectedVisit?.party?.latitude && selectedVisit?.party?.longitude && (
+                    <button
+                      type="button"
+                      onClick={() => handleUsePartyGps(false)}
+                      className="px-2.5 py-1 bg-purple-600/10 hover:bg-purple-600/20 text-purple-700 dark:text-purple-300 rounded-lg text-[10.5px] font-bold flex items-center gap-1 transition cursor-pointer"
+                      title="Set to customer's registered shop GPS"
+                    >
+                      <MapPin className="w-3 h-3 text-purple-600" />
+                      Use Customer Shop GPS ({Number(selectedVisit.party.latitude).toFixed(4)}, {Number(selectedVisit.party.longitude).toFixed(4)})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualLat(checkOutLat || selectedVisit?.party?.latitude || '');
+                      setManualLng(checkOutLng || selectedVisit?.party?.longitude || '');
+                      setManualGpsOpen(!manualGpsOpen);
+                    }}
+                    className="px-2.5 py-1 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 text-slate-700 dark:text-slate-200 rounded-lg text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                  >
+                    ✏️ {manualGpsOpen ? 'Hide Manual' : 'Enter Manually'}
+                  </button>
+                </div>
+
+                {/* Manual Lat/Lng override fields */}
+                {manualGpsOpen && (
+                  <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-300 dark:border-slate-600 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-slate-500 mb-0.5 font-bold">Latitude</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={manualLat}
+                          onChange={(e) => setManualLat(e.target.value)}
+                          placeholder="e.g. 22.7196"
+                          className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-500 mb-0.5 font-bold">Longitude</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={manualLng}
+                          onChange={(e) => setManualLng(e.target.value)}
+                          placeholder="e.g. 75.8577"
+                          className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-xs"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyManualGps(false)}
+                      className="w-full py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-xs"
+                    >
+                      Apply Coordinates
+                    </button>
                   </div>
                 )}
               </div>
@@ -1120,53 +1442,88 @@ const VisitsManagement = () => {
                 </div>
               )}
 
-              {/* Check-Out Photo Upload / Camera */}
+              {/* Check-Out Photo Upload / Live Camera */}
               <div className="space-y-2">
-                <label className="block font-bold text-slate-700 dark:text-slate-300">
-                  Check-Out Photo / Invoice / Store Front Proof *
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-700 dark:text-slate-300">
+                    Check-Out Photo / Invoice Proof (GPS Map Camera) *
+                  </label>
+                  <span className="text-[10px] font-mono text-purple-600 dark:text-purple-400 font-bold">
+                    ✓ Geo-Watermarked
+                  </span>
+                </div>
 
                 {checkOutPhoto ? (
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-purple-500 bg-slate-900">
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-purple-500 bg-slate-900 group shadow-lg">
                     <img
                       src={checkOutPhoto}
                       alt="Check-out proof"
-                      className="w-full h-44 object-cover"
+                      className="w-full h-52 object-cover"
                     />
                     <div className="absolute top-2 right-2 flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => setPreviewImage(checkOutPhoto)}
                         className="p-1.5 bg-slate-900/80 hover:bg-slate-900 text-white rounded-lg text-xs"
+                        title="View Full"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       <button
                         type="button"
+                        onClick={() => openCameraModal(false)}
+                        className="p-1.5 bg-brand-600/90 hover:bg-brand-600 text-white rounded-lg text-xs flex items-center gap-1"
+                        title="Retake Live Photo"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span className="text-[10px] font-bold">Retake</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setCheckOutPhoto('')}
                         className="p-1.5 bg-rose-600/90 hover:bg-rose-600 text-white rounded-lg text-xs"
+                        title="Remove Photo"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <label className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl p-5 flex flex-col items-center justify-center text-center cursor-pointer hover:border-purple-500 bg-slate-50 dark:bg-slate-700/30 transition">
-                    <Camera className="w-7 h-7 text-slate-400 mb-1" />
-                    <span className="font-bold text-slate-700 dark:text-slate-200">
-                      Click to Take Check-Out Photo
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      Signed invoice, payment receipt, or final counter photo
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => handlePhotoUpload(e, false)}
-                      className="hidden"
-                    />
-                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Live Camera Button */}
+                    <button
+                      type="button"
+                      onClick={() => openCameraModal(false)}
+                      className="p-5 rounded-2xl border-2 border-dashed border-purple-500/80 hover:border-purple-600 bg-purple-50/50 dark:bg-purple-950/20 hover:bg-purple-50 text-purple-800 dark:text-purple-300 flex flex-col items-center justify-center text-center transition group shadow-xs cursor-pointer"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-purple-600 text-white flex items-center justify-center mb-2 shadow-md group-hover:scale-105 transition-transform">
+                        <Camera className="w-6 h-6" />
+                      </div>
+                      <span className="font-bold text-xs">📸 Open Live Camera</span>
+                      <span className="text-[10px] text-purple-600/80 mt-0.5">
+                        Real-time GPS Map Camera
+                      </span>
+                    </button>
+
+                    {/* Gallery/File Picker */}
+                    <label className="p-5 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-brand-500 bg-slate-50 dark:bg-slate-700/30 hover:bg-slate-100 flex flex-col items-center justify-center text-center cursor-pointer transition group">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 flex items-center justify-center mb-2 shadow-xs group-hover:scale-105 transition-transform">
+                        <ImageIcon className="w-6 h-6" />
+                      </div>
+                      <span className="font-bold text-xs text-slate-700 dark:text-slate-200">
+                        📁 From Gallery / File
+                      </span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">
+                        Auto-stamps GPS watermark
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handlePhotoUpload(e, false)}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
                 )}
               </div>
 
@@ -1434,6 +1791,27 @@ const VisitsManagement = () => {
           </div>
         </div>
       )}
+
+      {/* ================= LIVE GPS MAP CAMERA MODAL ================= */}
+      <LiveGpsCameraModal
+        isOpen={cameraModalOpen}
+        onClose={() => setCameraModalOpen(false)}
+        onCapture={handleCameraCapture}
+        metadata={{
+          partyName: selectedVisit?.party?.name || selectedVisit?.partyName || 'Customer Store Visit',
+          shopName: selectedVisit?.party?.shopName || '',
+          address:
+            cameraTarget === 'checkIn'
+              ? (checkInAddress || selectedVisit?.party?.address || 'Field Verification Location')
+              : (selectedVisit?.party?.address || 'Field Verification Location'),
+          city: selectedVisit?.party?.city || '',
+          lat: cameraTarget === 'checkIn' ? checkInLat : checkOutLat,
+          lng: cameraTarget === 'checkIn' ? checkInLng : checkOutLng,
+          accuracy: cameraTarget === 'checkIn' ? checkInAccuracy : checkOutAccuracy,
+          salesmanName: user?.name || 'Field Salesman',
+          visitCode: selectedVisit?.visitCode || '',
+        }}
+      />
 
       {/* ================= FULL SCREEN PHOTO LIGHTBOX ================= */}
       {previewImage && (

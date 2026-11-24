@@ -3,14 +3,16 @@ const LocationHistory = require('../models/LocationHistory');
 const Salesman = require('../models/Salesman');
 const Visit = require('../models/Visit');
 const Collection = require('../models/Collection');
+const { forwardGeocode } = require('../services/geocodingService');
+const { isSalesmanConnected } = require('../services/socketService');
 
-// Compute tracking status
-function computeStatus(lastSeenAt, isOnline) {
-  if (!lastSeenAt || !isOnline) return 'offline';
+// Compute real-time tracking status strictly based on live socket and heartbeat freshness
+function computeStatus(lastSeenAt, isOnline, isConnected = false) {
+  if (!lastSeenAt || !isOnline || !isConnected) return 'offline';
   const ageSeconds = (Date.now() - new Date(lastSeenAt).getTime()) / 1000;
-  if (ageSeconds <= 300) return 'live'; // 5 minutes window
-  if (ageSeconds <= 1800) return 'stale'; // 30 minutes window
-  return 'offline';
+  if (ageSeconds <= 40) return 'live'; // Active heartbeat received within 40s
+  if (ageSeconds <= 120) return 'stale'; // Idle/Background within 2m
+  return 'offline'; // Otherwise offline
 }
 
 // GET /api/tracking/live-locations
@@ -76,10 +78,22 @@ exports.getLiveLocations = async (req, res) => {
       const loc = locationMap.get(sid);
       const visitGps = latestVisitGpsMap.get(sid);
 
-      const status = loc ? computeStatus(loc.lastSeenAt, loc.isOnline) : 'offline';
+      const isConnected = isSalesmanConnected(sid);
+      const status = loc ? computeStatus(loc.lastSeenAt, loc.isOnline, isConnected) : 'offline';
+      const isTrulyOnline = status === 'live';
+
+      // Keep LocationCurrent consistent with real status
+      if (loc && (loc.isOnline !== isTrulyOnline || loc.trackingStatus !== status || (!isTrulyOnline && loc.speed > 0))) {
+        loc.isOnline = isTrulyOnline;
+        loc.trackingStatus = status;
+        if (!isTrulyOnline) loc.speed = 0;
+        loc.save().catch(() => {});
+      }
+
       const effectiveLat = loc?.latitude ?? visitGps?.latitude ?? null;
       const effectiveLng = loc?.longitude ?? visitGps?.longitude ?? null;
       const effectiveAddress = loc?.address || visitGps?.address || '';
+      const realSpeed = isTrulyOnline && loc?.speed ? Math.max(0, Number(loc.speed)) : 0;
 
       return {
         salesmanId: sm._id,
@@ -90,13 +104,13 @@ exports.getLiveLocations = async (req, res) => {
         vehicleType: sm.vehicleType,
         latitude: effectiveLat != null ? Number(effectiveLat) : null,
         longitude: effectiveLng != null ? Number(effectiveLng) : null,
-        speed: loc?.speed ?? 0,
+        speed: realSpeed,
         heading: loc?.heading ?? 0,
         accuracy: loc?.accuracy ?? visitGps?.accuracy ?? null,
         battery: loc?.battery ?? null,
         address: effectiveAddress,
         trackingStatus: status,
-        isOnline: status !== 'offline',
+        isOnline: isTrulyOnline,
         lastSeenAt: loc?.lastSeenAt ?? visitGps?.timestamp ?? null,
         visitsToday: visitCountMap.get(sid) || 0,
         collectionToday: collectionMapSum.get(sid) || 0,
@@ -188,6 +202,32 @@ exports.updateLocationRest = async (req, res) => {
   } catch (err) {
     console.error('updateLocationRest error:', err);
     res.status(500).json({ success: false, message: 'Failed to update location' });
+  }
+};
+
+// GET /api/tracking/geocode-address
+exports.geocodeAddress = async (req, res) => {
+  try {
+    const { address = '', city = '' } = req.query;
+    const query = [address, city].filter(Boolean).join(', ');
+
+    if (!query.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter street address or city to detect GPS coordinates',
+      });
+    }
+
+    const result = await forwardGeocode(query);
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err.message || 'Failed to detect GPS coordinates',
+    });
   }
 };
 

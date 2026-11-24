@@ -1,6 +1,13 @@
 const mongoose = require('mongoose');
 
-const connectDB = async (retries = 5, delayMs = 5000) => {
+let isConnected = false;
+
+const connectDB = async (retries = 3, delayMs = 3000) => {
+  // If already connected or connecting, reuse existing connection (crucial for cloud/serverless/pooling)
+  if (isConnected || mongoose.connection.readyState >= 1) {
+    return mongoose.connection;
+  }
+
   const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/salesman_field_suite';
 
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -8,6 +15,7 @@ const connectDB = async (retries = 5, delayMs = 5000) => {
       const conn = await mongoose.connect(uri, {
         serverSelectionTimeoutMS: 5000,
       });
+      isConnected = true;
       console.log(`[Database] MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
       return conn;
     } catch (err) {
@@ -17,7 +25,10 @@ const connectDB = async (retries = 5, delayMs = 5000) => {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       } else {
         console.error('[Database Fatal] Could not connect to MongoDB after maximum retries.');
-        process.exit(1);
+        if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'production') {
+          process.exit(1);
+        }
+        throw err;
       }
     }
   }

@@ -4,6 +4,7 @@ const Party = require('../models/Party');
 const Salesman = require('../models/Salesman');
 const Collection = require('../models/Collection');
 const LocationCurrent = require('../models/LocationCurrent');
+const { isSalesmanConnected } = require('../services/socketService');
 
 async function getNextVisitCode() {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -498,10 +499,11 @@ exports.getTodaySummary = async (req, res) => {
     const totalOrdered = todayVisits.reduce((acc, v) => acc + (v.orderAmount || 0), 0);
     const totalMonthCollected = monthCollections.reduce((acc, c) => acc + (c.amount || 0), 0);
 
-    const activeThreshold = new Date(Date.now() - 15 * 60 * 1000); // seen within last 15 mins
-    const currentlyOnlineCount = liveLocations.filter(
-      (l) => l.isOnline && l.lastSeenAt && new Date(l.lastSeenAt) >= activeThreshold
-    ).length;
+    const activeThreshold = new Date(Date.now() - 40 * 1000); // 40 seconds (heartbeat is 15s)
+    const currentlyOnlineCount = liveLocations.filter((l) => {
+      const sid = l.salesman?.toString();
+      return isSalesmanConnected(sid) && l.isOnline && l.lastSeenAt && new Date(l.lastSeenAt) >= activeThreshold;
+    }).length;
 
     res.status(200).json({
       success: true,

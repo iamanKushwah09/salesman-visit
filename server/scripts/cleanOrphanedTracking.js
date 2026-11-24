@@ -11,6 +11,7 @@ const clean = async () => {
     console.log('[Cleanup] Connected to MongoDB');
 
     const Salesman = mongoose.model('Salesman', new mongoose.Schema({}, { strict: false }));
+    const Party = mongoose.model('Party', new mongoose.Schema({}, { strict: false }));
     const LocationCurrent = mongoose.model('LocationCurrent', new mongoose.Schema({}, { strict: false }));
     const LocationHistory = mongoose.model('LocationHistory', new mongoose.Schema({}, { strict: false }));
 
@@ -20,9 +21,14 @@ const clean = async () => {
 
     const curDel = await LocationCurrent.deleteMany({ salesman: { $nin: validIds } });
     const histDel = await LocationHistory.deleteMany({ salesman: { $nin: validIds } });
+    const partyUpdate = await Party.updateMany(
+      { assignedSalesman: { $nin: [...validIds, null] } },
+      { $set: { assignedSalesman: null } }
+    );
 
     console.log('[Cleanup] Deleted orphaned LocationCurrent records:', curDel.deletedCount);
     console.log('[Cleanup] Deleted orphaned LocationHistory records:', histDel.deletedCount);
+    console.log('[Cleanup] Reset orphaned Party assignedSalesman to null (Open Pool):', partyUpdate.modifiedCount);
 
     process.exit(0);
   } catch (err) {

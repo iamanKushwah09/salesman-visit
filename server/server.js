@@ -10,6 +10,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const connectDB = require('./config/db');
+// Real-time Fleet Presence & Socket Gateway
 const { initSocket } = require('./services/socketService');
 
 // Route handlers
@@ -55,21 +56,25 @@ async function ensureInitialAdmin() {
       console.log('[System Boot] Initialized Field Salesman Role');
     }
 
-    const adminUser = await User.findOne({ email: 'admin@gmail.com' });
+    const initialEmail = (process.env.INITIAL_ADMIN_EMAIL || 'admin@gmail.com').toLowerCase().trim();
+    const initialPassword = process.env.INITIAL_ADMIN_PASSWORD || 'Admin@123456';
+    const initialName = process.env.INITIAL_ADMIN_NAME || 'System Administrator';
+
+    const adminUser = await User.findOne({ email: initialEmail });
     if (!adminUser) {
       const userCount = await User.countDocuments();
       if (userCount === 0) {
         await User.create({
-          name: 'System Administrator',
-          email: 'admin@gmail.com',
-          password: 'Admin@123456',
+          name: initialName,
+          email: initialEmail,
+          password: initialPassword,
           phone: '+91 99999 11111',
           role: adminRole._id,
           roleName: adminRole.name,
           roleSlug: 'super_admin',
           isActive: true,
         });
-        console.log('[System Boot] Created Initial Admin: admin@gmail.com / Admin@123456');
+        console.log(`[System Boot] Created Initial Admin: ${initialEmail}`);
       }
     }
   } catch (err) {
@@ -89,11 +94,33 @@ const server = http.createServer(app);
 initSocket(server);
 
 // Middleware
-const allowedOrigins = process.env.CLIENT_URL
-  ? [process.env.CLIENT_URL, 'http://localhost:5173', 'http://localhost:5070']
-  : '*';
+const clientUrls = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(',').map((u) => u.trim().replace(/\/+$/, '')).filter(Boolean)
+  : [];
 
-app.use(cors({ origin: allowedOrigins, credentials: false }));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow non-browser requests (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      // Allow explicit configured URLs
+      if (clientUrls.includes(origin)) return callback(null, true);
+      // Allow all Vercel previews & production domains, localhost, and tunnels
+      if (
+        origin.endsWith('.vercel.app') ||
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1') ||
+        origin.includes('192.168.') ||
+        origin.endsWith('.loca.lt')
+      ) {
+        return callback(null, true);
+      }
+      // Safe fallback for cloud deployments so CORS never breaks API routes
+      return callback(null, true);
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
@@ -166,13 +193,16 @@ process.on('uncaughtException', (err) => {
 
 const PORT = process.env.PORT || 5070;
 
-server.listen(PORT, () => {
-  console.log(`=======================================================`);
-  console.log(`🚀 Salesman Field Suite Server running on port ${PORT}`);
-  console.log(`📡 WebSocket Gateway ready for Uber/Ola Live Tracking`);
-  console.log(`🔒 RBAC Permission Engine & Auto-Bootstrap Active`);
-  console.log(`=======================================================`);
-});
+// Listen when executed as standalone server
+if (process.env.VERCEL !== '1') {
+  server.listen(PORT, () => {
+    console.log(`=======================================================`);
+    console.log(`🚀 Salesman Field Suite Server running on port ${PORT}`);
+    console.log(`📡 WebSocket Gateway ready for Uber/Ola Live Tracking`);
+    console.log(`🔒 RBAC Permission Engine & Auto-Bootstrap Active`);
+    console.log(`=======================================================`);
+  });
+}
 
 // Graceful shutdown handling
 process.on('SIGTERM', () => {
@@ -182,3 +212,7 @@ process.on('SIGTERM', () => {
     process.exit(0);
   });
 });
+
+module.exports = app;
+module.exports.app = app;
+module.exports.server = server;

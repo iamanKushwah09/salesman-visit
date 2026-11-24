@@ -1,11 +1,32 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
+import { SocketContext } from '../context/SocketContext';
 import { useSidebar } from '../context/SidebarContext';
 import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 const Navbar = ({ title, subtitle }) => {
   const { user } = useContext(AuthContext);
+  const socket = useContext(SocketContext);
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const [socketOnline, setSocketOnline] = useState(false);
+
+  useEffect(() => {
+    if (!socket) return;
+    setSocketOnline(Boolean(socket.connected));
+
+    const onConnect = () => setSocketOnline(true);
+    const onDisconnect = () => setSocketOnline(false);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, [socket]);
+
+  const isSalesman = !!user?.salesmanProfile && !user?.isSuperAdmin && user?.roleSlug !== 'super_admin';
 
   return (
     <header className="h-16 px-4 sm:px-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
@@ -43,11 +64,25 @@ const Navbar = ({ title, subtitle }) => {
 
       {/* Right: Status and User Info */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* System Online Badge */}
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>System Online</span>
-        </div>
+        {/* Real-time Presence Badge */}
+        {isSalesman ? (
+          socketOnline ? (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Live Online</span>
+            </div>
+          ) : (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-semibold">
+              <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+              <span>Connecting / Offline</span>
+            </div>
+          )
+        ) : (
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
+            <span className={`w-2 h-2 rounded-full ${socketOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+            <span>{socketOnline ? 'Fleet Gateway Online' : 'Connecting...'}</span>
+          </div>
+        )}
 
         {/* User Role Tag */}
         <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-slate-200 dark:border-slate-800">
